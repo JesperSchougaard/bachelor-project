@@ -1,7 +1,9 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
+
 use concordium_std::{collections::BTreeMap, *};
 use core::fmt::Debug;
+
 
 /// # Implementation of an auction smart contract
 ///
@@ -72,7 +74,7 @@ struct InitParameter {
     /// The item to be sold, as a sequence of ASCII codes.
     item:   Vec<u8>,
     /// Time of the auction end in the RFC 3339 format (https://tools.ietf.org/html/rfc3339)
-    expiry: Timestamp,
+    expiry: u64,
 }
 
 /// For errors in which the `bid` function can result
@@ -99,7 +101,7 @@ enum FinalizeError {
 #[init(contract = "auction", parameter = "InitParameter")]
 fn auction_init(ctx: &impl HasInitContext) -> InitResult<State> {
     let parameter: InitParameter = ctx.parameter_cursor().get()?;
-    Ok(fresh_state(parameter.item, parameter.expiry))
+    Ok(fresh_state(parameter.item, Timestamp::from_timestamp_millis(2) ))
 }
 
 /// Receive function in which accounts can bid before the auction end time
@@ -173,10 +175,6 @@ fn auction_finalize<A: HasActions>(
 }
 
 
-
-use quickcheck::{Gen, Arbitrary};
-
-
 #[cfg(test)]
 extern crate quickcheck;
 #[cfg(test)]
@@ -186,6 +184,7 @@ extern crate quickcheck_macros;
 
 #[cfg(test)]
 mod tests {
+    use quickcheck::{Gen, Arbitrary};
     use super::*;
     use std::sync::atomic::{AtomicU8, Ordering};
     use quickcheck::TestResult;
@@ -211,7 +210,7 @@ mod tests {
 
     #[quickcheck]
     fn propertybased(amount: AmountFixture, timestamp_millis: u64) -> bool {
-    //fn propertybased(amount: AmountFixture) -> bool {
+        //fn propertybased(amount: AmountFixture) -> bool {
         let (bob, bob_ctx) = new_account_ctx();
         println!("{}", timestamp_millis);
 
@@ -285,13 +284,13 @@ mod tests {
     fn item_expiry_parameter() -> InitParameter {
         InitParameter {
             item: ITEM.as_bytes().to_vec(),
-            expiry: Timestamp::from_timestamp_millis(AUCTION_END),
+            expiry: AUCTION_END,
         }
     }
 
     fn create_parameter_bytes(parameter: &InitParameter) -> Vec<u8> { to_bytes(parameter) }
 
-    fn parametrized_init_ctx<'a>(parameter_bytes: &'a Vec<u8>) -> InitContextTest<'a> {
+    fn parametrized_init_ctx(parameter_bytes: &Vec<u8>) -> InitContextTest {
         let mut ctx = InitContextTest::empty();
         ctx.set_parameter(parameter_bytes);
         ctx

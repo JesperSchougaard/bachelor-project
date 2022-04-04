@@ -1,4 +1,8 @@
-use concordium_std::*;
+
+
+
+
+/*use concordium_std::*;
 
 #[derive(Serialize, PartialEq, Eq, Debug)]
 enum PiggyBankState {
@@ -11,13 +15,13 @@ enum SmashError {
     AlreadySmashed,
 }
 
-#[init(contract = "PiggyBank")]
+#[init(contract = "PiggyBankTesting")]
 fn piggy_init(_ctx: &impl HasInitContext) -> InitResult<PiggyBankState> {
     Ok(PiggyBankState::Intact)
 }
 
 
-#[receive(contract = "PiggyBank", name = "insert", payable)]
+#[receive(contract = "PiggyBankTesting", name = "insert", payable)]
 fn piggy_insert<A: HasActions>(
     _ctx: &impl HasReceiveContext,
     _amount: Amount,
@@ -27,7 +31,7 @@ fn piggy_insert<A: HasActions>(
     Ok(A::accept())
 }
 
-#[receive(contract = "PiggyBank", name = "smash")]
+#[receive(contract = "PiggyBankTesting", name = "smash")]
 fn piggy_smash<A: HasActions>(
     ctx: &impl HasReceiveContext,
     state: &mut PiggyBankState,
@@ -42,6 +46,7 @@ fn piggy_smash<A: HasActions>(
     Ok(A::simple_transfer(&owner, balance))
 }
 
+/*
 #[concordium_cfg_test]
 mod tests {
     use super::*;
@@ -138,3 +143,4 @@ mod tests {
         );
     }
 }
+*/
