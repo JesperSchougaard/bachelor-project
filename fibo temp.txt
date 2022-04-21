@@ -1,0 +1,90 @@
+    #[quickcheck]
+    fn this_is_it() -> bool {
+
+        // pub trait HasInitContext<Error: Default = ()>: HasCommonData {
+        //     /// Data needed to open the context.
+        //     type InitData;
+        //     /// Open the init context for reading and accessing values.
+        //     fn open(data: Self::InitData) -> Self;
+        //     /// Who invoked this init call.
+        //     fn init_origin(&self) -> AccountAddress;
+        // }
+
+        pub struct TestCtx;
+        //impl HasPolicy for u64 {
+        //        fn identity_provider(&self) -> IdentityProvide{todo!()}
+        //        fn created_at(&self) -> Timestamp{todo!()}
+        //        fn valid_to(&self) -> Timestamp {todo!()}
+        //        fn next_item(&mut self, buf: &mut [u8; 31]) -> Option<(AttributeTag, u8)> { todo!() }
+        //
+        //}
+
+        //impl HasPolicy for PolicyType {
+        //    fn identity_provider(&self) -> IdentityProvide{todo!()}
+        //    fn created_at(&self) -> Timestamp{todo!()}
+        //    fn valid_to(&self) -> Timestamp {todo!()}
+        //    fn next_item(&mut self, buf: &mut [u8; 31]) -> Option<(AttributeTag, u8)> {
+        //        todo!()
+        //    }
+        //}
+        //impl ExactSizeIterator for u64 {}
+        impl HasCommonData for TestCtx {
+            type PolicyType = TestPolicy;
+            type MetadataType = ChainMetaTest;
+            type ParamType = Parameter;
+
+            type PolicyIteratorType = IndexVecIntoIter;
+
+            fn policies(&self) -> Self::PolicyIteratorType {
+                todo!()
+            }
+
+            fn metadata(&self) -> &Self::MetadataType {
+                todo!()
+            }
+
+            fn parameter_cursor(&self) -> Self::ParamType {
+                todo!()
+            }
+        }
+
+        impl HasReceiveContext for TestCtx {
+            type ReceiveData = u64;
+
+            /// Open the receive context for reading and accessing values.
+            fn open(data: Self::ReceiveData) -> Self{todo!()}
+            /// Who is the account that initiated the top-level transaction this
+            /// invocation is a part of.
+            fn invoker(&self) -> AccountAddress{todo!()}
+            /// The address of the contract being invoked.
+            fn self_address(&self) -> ContractAddress{todo!()}
+            /// Balance on the contract before the call was made.
+            fn self_balance(&self) -> Amount{todo!()}
+            /// The immediate sender of the message. In general different from the
+            /// invoker.
+            fn sender(&self) -> Address{todo!()}
+            /// Account which created the contract instance.
+            fn owner(&self) -> AccountAddress{todo!()}
+        }
+        impl HasInitContext for TestCtx {
+            type InitData = u64;
+
+            fn open(data: Self::InitData) -> Self {
+                Self
+            }
+
+            fn init_origin(&self) -> AccountAddress {
+                AccountAddress([ACCOUNT_ADDRESS_SIZE as u8; 32])
+                //pub [u8; ACCOUNT_ADDRESS_SIZE]
+            }
+        }
+
+        //let mut ctx = HasInitContext::; //HasInitContext::init_origin(HasInitContext);
+        //ctx.set_sender(Address::Account(sender));
+        let mut ctx = TestCtx;
+        //let init_result: InitResult<State> = contract_init(ctx);
+        let &pointerstate = State {result: 0};
+        let result: ReceiveResult<HasActions> = contract_receive(ctx, pointerstate);
+
+        result.is_ok()
+    }

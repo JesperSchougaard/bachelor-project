@@ -1,7 +1,3 @@
-#![allow(dead_code)]
-#![allow(unused_variables)]
-
-
 use concordium_std::*;
 use core::fmt::Debug;
 
@@ -156,7 +152,6 @@ fn auction_finalize<S: HasStateApi>(
             if *amnt < state.highest_bid {
                 if host.invoke_transfer(&*addr, *amnt).is_err() {
                     bail!(FinalizeError::BidMapError);
-                    //host.
                 }
             } else {
                 ensure!(remaining_bid.is_none(), FinalizeError::BidMapError);
@@ -177,8 +172,6 @@ fn auction_finalize<S: HasStateApi>(
 
 #[concordium_cfg_test]
 mod tests {
-    use std::borrow::{Borrow, BorrowMut};
-    use std::ops::Range;
     use super::*;
     use concordium_std::collections::BTreeMap;
     use std::sync::atomic::{AtomicU8, Ordering};
@@ -190,9 +183,9 @@ mod tests {
     const ITEM: &str = "Starry night by Van Gogh";
 
     fn expect_error<E, T>(expr: Result<T, E>, err: E, msg: &str)
-        where
-            E: Eq + Debug,
-            T: Debug, {
+    where
+        E: Eq + Debug,
+        T: Debug, {
         let actual = expr.expect_err(msg);
         assert_eq!(actual, err);
     }
@@ -394,94 +387,4 @@ mod tests {
         let res = auction_bid(&ctx1, &mut host, Amount::zero());
         expect_error(res, BidError::BidTooLow, "Bidding zero should fail");
     }
-
-
-
-    ///QUICKCHECK
-
-    use quickcheck::{Gen, Arbitrary};
-    use quickcheck_macros::quickcheck;
-    use crate::schema::SizeLength::U64;
-
-    #[derive(Debug)]
-    pub struct AmountFixture(pub Amount);
-
-    //clone values
-    impl Clone for AmountFixture {
-        fn clone(&self) -> Self { AmountFixture(self.0) }
-    }
-
-    //make arbitrary values
-    impl Arbitrary for AmountFixture {
-        fn arbitrary(g: &mut Gen) -> Self {
-            Self(concordium_std::Amount { micro_ccd: g.size() as u64 })
-        }
-    }
-
-
-    #[quickcheck]
-    fn propertybased(amount: AmountFixture, bids: Vec<u8>, accountToBid: Vec<u8>) -> bool {
-
-        let numberOfBids = accountToBid.len();
-        if numberOfBids <= 1 {
-            return true
-        }
-
-
-        let parameter_bytes = create_parameter_bytes(&item_expiry_parameter());
-        let ctx0 = parametrized_init_ctx(&parameter_bytes);
-        let mut state_builder = TestStateBuilder::new();
-        let initial_state =
-            auction_init(&ctx0, &mut state_builder).expect("Initialization should pass");
-        let mut host = TestHost::new(initial_state, state_builder);
-
-        let mut accounts: BTreeMap<u8, TestReceiveContext> = BTreeMap::new();
-        let mut bid_map: BTreeMap<AccountAddress, Amount> = BTreeMap::new();
-        let highest_bid = Amount { micro_ccd: u64::MIN };
-
-
-        for accNum in accountToBid.clone() {
-            let account = new_account();
-            accounts.insert(accNum, new_ctx(account, account, 1));
-        }
-
-
-        let mut global_highest_bid: u64 = 0;
-        let mut address_of_last_buyer: AccountAddress = new_account();
-        for i in 0..numberOfBids {
-
-            assert_ne!(bids[i], 0);
-
-
-            let ctx: &TestReceiveContext = accounts.get(&accountToBid[i]).unwrap();
-            address_of_last_buyer = ctx.owner();
-
-            let highest_bid = bid_map.get(&ctx.owner()).cloned().unwrap_or(Amount { micro_ccd: 0 }).micro_ccd;
-            global_highest_bid += bids[i] as u64;
-            println!("{} and {}", bids[i], global_highest_bid);
-            verify_bid(&mut host,
-                       ctx.owner(),
-                       &ctx,
-                       Amount { micro_ccd: global_highest_bid as u64 },
-                       &mut bid_map,
-                       Amount { micro_ccd: global_highest_bid as u64 }
-            );
-        }
-
-        let auction_winner: AccountAddress = address_of_last_buyer;
-
-
-        let transfers = host.borrow_mut().get_transfers();
-        for (acc, amount) in transfers {
-            if acc == auction_winner {
-                assert_eq!(amount, Amount { micro_ccd: 0 });
-            } else {
-                assert_eq!(amount, *bid_map.get(&acc).unwrap());
-            }
-        }
-
-        true
-    }
-
-
 }
