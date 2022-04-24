@@ -2,6 +2,8 @@
 #![allow(unused_variables)]
 
 
+extern crate core;
+
 use concordium_std::*;
 use core::fmt::Debug;
 
@@ -119,7 +121,12 @@ fn auction_bid<S: HasStateApi>(
         Address::Account(account_address) => account_address,
     };
     let mut bid_to_update = state.bids.entry(sender_address).or_insert(Amount::zero());
+    //println!("[before] bid_to_update: {}", (*bid_to_update).micro_ccd);
+    //println!("[before] state.highest_bid: {}", state.highest_bid.micro_ccd);
     *bid_to_update += amount;
+    //println!("[after] state.highest_bid: {}", state.highest_bid.micro_ccd);
+    //println!("[after] bid_to_update: {}", (*bid_to_update).micro_ccd);
+    //println!("[auction_bid] bidTooLow: {} > {}", (*bid_to_update).micro_ccd, state.highest_bid.micro_ccd);
     // Ensure that the new bid exceeds the highest bid so far
     ensure!(*bid_to_update > state.highest_bid, BidError::BidTooLow);
 
@@ -139,21 +146,28 @@ fn auction_finalize<S: HasStateApi>(
     ensure!(state.auction_state == AuctionState::NotSoldYet, FinalizeError::AuctionFinalized);
 
     let slot_time = ctx.metadata().slot_time();
+    println!("slot_time > state.expire _____  {} > {}", slot_time.timestamp_millis(), state.expiry.timestamp_millis());
     ensure!(slot_time > state.expiry, FinalizeError::AuctionStillActive);
 
     let owner = ctx.owner();
 
+    println!("A");
     let balance = host.self_balance();
     if balance == Amount::zero() {
+        println!("A2");
         Ok(())
     } else {
+        println!("B");
         if host.invoke_transfer(&owner, state.highest_bid).is_err() {
             bail!(FinalizeError::BidMapError);
         }
+        println!("C");
         let mut remaining_bid = None;
         // Return bids that are smaller than highest
         for (addr, amnt) in state.bids.iter() {
+            println!("D");
             if *amnt < state.highest_bid {
+                println!("transfer to: {:?},  amount: {}", addr.0[1], (*amnt).micro_ccd);
                 if host.invoke_transfer(&*addr, *amnt).is_err() {
                     bail!(FinalizeError::BidMapError);
                     //host.
@@ -178,10 +192,13 @@ fn auction_finalize<S: HasStateApi>(
 #[concordium_cfg_test]
 mod tests {
     use std::borrow::{Borrow, BorrowMut};
+    use std::cmp::min;
     use std::ops::Range;
     use super::*;
     use concordium_std::collections::BTreeMap;
     use std::sync::atomic::{AtomicU8, Ordering};
+    use std::thread::sleep;
+    use std::{process, time};
     use test_infrastructure::*;
 
     // A counter for generating new account addresses
@@ -399,13 +416,13 @@ mod tests {
 
     ///QUICKCHECK
 
-    use quickcheck::{Gen, Arbitrary};
+    use quickcheck::{Gen, Arbitrary, Testable};
     use quickcheck_macros::quickcheck;
+    use rand::{Rng, SeedableRng, thread_rng};
     use crate::schema::SizeLength::U64;
 
     #[derive(Debug)]
     pub struct AmountFixture(pub Amount);
-
     //clone values
     impl Clone for AmountFixture {
         fn clone(&self) -> Self { AmountFixture(self.0) }
@@ -418,12 +435,31 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    pub struct Bids(pub Vec<u64>);
+
+    impl Clone for Bids {
+        fn clone(&self) -> Self {
+            Self(self.0.clone())
+        }
+    }
+
+    impl Arbitrary for Bids {
+        fn arbitrary(g: &mut Gen) -> Self {
+            Bids((1..10).map(|_| (u64::arbitrary(g) % 10) + 1).collect())
+        }
+    }
+
 
     #[quickcheck]
-    fn propertybased(amount: AmountFixture, bids: Vec<u8>, accountToBid: Vec<u8>) -> bool {
+    fn propertybased(amount: AmountFixture, bids: Bids, account_to_bid: Vec<u8>) -> bool {
 
-        let numberOfBids = accountToBid.len();
-        if numberOfBids <= 1 {
+        println!("starting propertybased");
+        println!("BIDS LENGTH: {}", bids.0.len());
+
+        let number_of_bids = account_to_bid.len();
+        if number_of_bids <= 1 {
+            println!("Returned true");
             return true
         }
 
@@ -435,48 +471,88 @@ mod tests {
             auction_init(&ctx0, &mut state_builder).expect("Initialization should pass");
         let mut host = TestHost::new(initial_state, state_builder);
 
-        let mut accounts: BTreeMap<u8, TestReceiveContext> = BTreeMap::new();
+        let mut accounts: BTreeMap<u8, TestReceiveContext> = BTreeMap::new(); ///account#, account
         let mut bid_map: BTreeMap<AccountAddress, Amount> = BTreeMap::new();
         let highest_bid = Amount { micro_ccd: u64::MIN };
 
-
-        for accNum in accountToBid.clone() {
+        ///generate accounts and insert them into map
+        for accNum in account_to_bid.clone() {
             let account = new_account();
-            accounts.insert(accNum, new_ctx(account, account, 1));
+            accounts.insert(accNum, new_ctx(account, account, 0));
         }
 
 
-        let mut global_highest_bid: u64 = 0;
+        let mut global_highest_bid = 0;
         let mut address_of_last_buyer: AccountAddress = new_account();
-        for i in 0..numberOfBids {
+        ///perform a bid for each number in the list of "number_of_bids"
+        for i in 0..(min(number_of_bids, bids.0.len())) {
+            println!("Inserting into bit_map for account: {}", account_to_bid[i]);
+            //println!("         ");
+            //println!("INDEX: {}", i);
+            assert_ne!(bids.0[0], 0);
 
-            assert_ne!(bids[i], 0);
 
-
-            let ctx: &TestReceiveContext = accounts.get(&accountToBid[i]).unwrap();
+            let ctx: &TestReceiveContext = accounts.get(&account_to_bid[i]).unwrap();
             address_of_last_buyer = ctx.owner();
 
             let highest_bid = bid_map.get(&ctx.owner()).cloned().unwrap_or(Amount { micro_ccd: 0 }).micro_ccd;
-            global_highest_bid += bids[i] as u64;
-            println!("{} and {}", bids[i], global_highest_bid);
+
+            //println!("bid: {}, global_high: {}, sum: {}", bids.0[i], global_highest_bid, global_highest_bid + bids.0[i]);
+            assert!(bids.0[i] > 0);
+            //global_highest_bid += (bids.0[i]);
+            // 50 -> 50
+            // 10 -> 60 (110)
+            //println!("[after] bid: {}, global_high: {}, sum: {}", bids.0[i], global_highest_bid, global_highest_bid + bids.0[i]);
+            global_highest_bid = host.borrow_mut().state().highest_bid.micro_ccd + bids.0[i];
             verify_bid(&mut host,
                        ctx.owner(),
                        &ctx,
-                       Amount { micro_ccd: global_highest_bid as u64 },
+                       Amount { micro_ccd: global_highest_bid },
                        &mut bid_map,
-                       Amount { micro_ccd: global_highest_bid as u64 }
+                       Amount { micro_ccd: global_highest_bid }
             );
+
         }
 
+
+        sleep(time::Duration::from_millis(10));
+
+        host.borrow_mut().set_self_balance(Amount { micro_ccd: u64::MAX });
+        let ctx: TestReceiveContext = new_ctx(new_account(), new_account(), 2);
+        let result = auction_finalize(&ctx, &mut host);
+        //result.err()?;
+
+        if result.is_err() {
+            eprintln!("{:?}", result.err().unwrap());
+            process::exit(1);
+        }
+
+
+        // Last person to bid should have highest bid
         let auction_winner: AccountAddress = address_of_last_buyer;
 
 
         let transfers = host.borrow_mut().get_transfers();
+        //println!("{}", transfers.into_iter());
+        assert!(transfers.len() > 0);
+        println!("transfers: {:?}", transfers);
+        println!("bid_map: {:?}", bid_map);
+
         for (acc, amount) in transfers {
+            println!("Transfer to account: {}", acc.0[1]);
+
+            //check winner is correct and that they got nothing back
             if acc == auction_winner {
                 assert_eq!(amount, Amount { micro_ccd: 0 });
-            } else {
-                assert_eq!(amount, *bid_map.get(&acc).unwrap());
+            }
+            //else check that other accounts got back what they bid
+            else {
+                // let highest_bid = bid_map.get(&ctx.owner()).cloned().unwrap_or(Amount { micro_ccd: 0 }).micro_ccd;
+                //bid_map.get(&acc).unwrap();
+                if bid_map.get(&acc).unwrap_or(&Amount {micro_ccd: -25} ).micro_ccd == -25 {
+                    println!("default case hit")
+                }
+                assert_eq!(amount.micro_ccd, bid_map.get(&acc).unwrap_or(&Amount {micro_ccd: 0} ).micro_ccd );
             }
         }
 
