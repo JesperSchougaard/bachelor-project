@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
+#![allow(warnings, unused)]
 
 
 extern crate core;
@@ -146,28 +147,31 @@ fn auction_finalize<S: HasStateApi>(
     ensure!(state.auction_state == AuctionState::NotSoldYet, FinalizeError::AuctionFinalized);
 
     let slot_time = ctx.metadata().slot_time();
-    println!("slot_time > state.expire _____  {} > {}", slot_time.timestamp_millis(), state.expiry.timestamp_millis());
+    //println!("slot_time > state.expire _____  {} > {}", slot_time.timestamp_millis(), state.expiry.timestamp_millis());
     ensure!(slot_time > state.expiry, FinalizeError::AuctionStillActive);
 
     let owner = ctx.owner();
 
-    println!("A");
+    //println!("A");
     let balance = host.self_balance();
     if balance == Amount::zero() {
-        println!("A2");
+        //println!("A2");
         Ok(())
     } else {
-        println!("B");
+        //println!("B");
         if host.invoke_transfer(&owner, state.highest_bid).is_err() {
+            //println!("B2");
             bail!(FinalizeError::BidMapError);
         }
-        println!("C");
+        //println!("C");
         let mut remaining_bid = None;
         // Return bids that are smaller than highest
         for (addr, amnt) in state.bids.iter() {
-            println!("D");
+            //println!("D");
+            //println!("D  {} < {}", (*amnt).micro_ccd, state.highest_bid.micro_ccd);
             if *amnt < state.highest_bid {
-                println!("transfer to: {:?},  amount: {}", addr.0[1], (*amnt).micro_ccd);
+                //println!("Giving non-winner money back");
+                //println!("transfer to: {:?},  amount: {}", addr.0[1], (*amnt).micro_ccd);
                 if host.invoke_transfer(&*addr, *amnt).is_err() {
                     bail!(FinalizeError::BidMapError);
                     //host.
@@ -197,7 +201,7 @@ mod tests {
     use super::*;
     use concordium_std::collections::BTreeMap;
     use std::sync::atomic::{AtomicU8, Ordering};
-    use std::thread::sleep;
+    use std::thread::{current, sleep};
     use std::{process, time};
     use test_infrastructure::*;
 
@@ -446,7 +450,7 @@ mod tests {
 
     impl Arbitrary for Bids {
         fn arbitrary(g: &mut Gen) -> Self {
-            Bids((1..10).map(|_| (u64::arbitrary(g) % 10) + 1).collect())
+            Bids((1..250).map(|_| (u64::arbitrary(g) % 10) + 1).collect())
         }
     }
 
@@ -454,12 +458,13 @@ mod tests {
     #[quickcheck]
     fn propertybased(amount: AmountFixture, bids: Bids, account_to_bid: Vec<u8>) -> bool {
 
-        println!("starting propertybased");
-        println!("BIDS LENGTH: {}", bids.0.len());
+        //println!("\n\n\n\nstarting propertybased");
+        //println!("BIDS LENGTH: {}", bids.0.len());
+        //println!("account_to_bid LENGTH: {}", account_to_bid.len());
 
         let number_of_bids = account_to_bid.len();
         if number_of_bids <= 1 {
-            println!("Returned true");
+            //println!("Returned true");
             return true
         }
 
@@ -475,7 +480,7 @@ mod tests {
         let mut bid_map: BTreeMap<AccountAddress, Amount> = BTreeMap::new();
         let highest_bid = Amount { micro_ccd: u64::MIN };
 
-        ///generate accounts and insert them into map
+        //generate accounts and insert them into map
         for accNum in account_to_bid.clone() {
             let account = new_account();
             accounts.insert(accNum, new_ctx(account, account, 0));
@@ -484,9 +489,9 @@ mod tests {
 
         let mut global_highest_bid = 0;
         let mut address_of_last_buyer: AccountAddress = new_account();
-        ///perform a bid for each number in the list of "number_of_bids"
+        //perform a bid for each number in the list of "number_of_bids"
         for i in 0..(min(number_of_bids, bids.0.len())) {
-            println!("Inserting into bit_map for account: {}", account_to_bid[i]);
+            //println!("Inserting into bit_map for account: {}", account_to_bid[i]);
             //println!("         ");
             //println!("INDEX: {}", i);
             assert_ne!(bids.0[0], 0);
@@ -495,7 +500,7 @@ mod tests {
             let ctx: &TestReceiveContext = accounts.get(&account_to_bid[i]).unwrap();
             address_of_last_buyer = ctx.owner();
 
-            let highest_bid = bid_map.get(&ctx.owner()).cloned().unwrap_or(Amount { micro_ccd: 0 }).micro_ccd;
+            let current_bid = bid_map.get(&ctx.owner()).cloned().unwrap_or(Amount { micro_ccd: 0 }).micro_ccd;
 
             //println!("bid: {}, global_high: {}, sum: {}", bids.0[i], global_highest_bid, global_highest_bid + bids.0[i]);
             assert!(bids.0[i] > 0);
@@ -503,23 +508,31 @@ mod tests {
             // 50 -> 50
             // 10 -> 60 (110)
             //println!("[after] bid: {}, global_high: {}, sum: {}", bids.0[i], global_highest_bid, global_highest_bid + bids.0[i]);
+            //println!("Account owner: {:?}", ctx.owner());
+            /*
+            if host.borrow().state().highest_bid == bid_map[ctx.owner()] {
+                global_highest_bid = bids.0[i];
+            }
+            else {
+             } */
             global_highest_bid = host.borrow_mut().state().highest_bid.micro_ccd + bids.0[i];
             verify_bid(&mut host,
                        ctx.owner(),
                        &ctx,
                        Amount { micro_ccd: global_highest_bid },
                        &mut bid_map,
-                       Amount { micro_ccd: global_highest_bid }
+                       Amount { micro_ccd: global_highest_bid + current_bid}
             );
-
         }
 
+        let transfers = host.borrow_mut().get_transfers();
+        //println!("[before finalize] transfers: {:?}", transfers);
+        //println!("[before finalize] bid_map: {:?}", bid_map);
 
-        sleep(time::Duration::from_millis(10));
 
         host.borrow_mut().set_self_balance(Amount { micro_ccd: u64::MAX });
-        let ctx: TestReceiveContext = new_ctx(new_account(), new_account(), 2);
-        let result = auction_finalize(&ctx, &mut host);
+        let fin_ctx: TestReceiveContext = new_ctx(new_account(), new_account(), 2);
+        let result = auction_finalize(&fin_ctx, &mut host);
         //result.err()?;
 
         if result.is_err() {
@@ -535,25 +548,21 @@ mod tests {
         let transfers = host.borrow_mut().get_transfers();
         //println!("{}", transfers.into_iter());
         assert!(transfers.len() > 0);
-        println!("transfers: {:?}", transfers);
-        println!("bid_map: {:?}", bid_map);
+        // println!("transfers: {:?}", transfers.first().unwrap().clone().0.0[0]);
+        // println!("bid_map: {:?}", bid_map.keys().clone().last().clone().unwrap().0[0]);
+        // println!("transfers: {:?}", transfers);
+        // println!("bid_map: {:?}", bid_map);
 
         for (acc, amount) in transfers {
-            println!("Transfer to account: {}", acc.0[1]);
+            if fin_ctx.owner() == acc {
+                continue;
+            }
 
-            //check winner is correct and that they got nothing back
-            if acc == auction_winner {
-                assert_eq!(amount, Amount { micro_ccd: 0 });
-            }
+            //check that winner is not in the transfer list
+            assert_ne!(acc, auction_winner);
+
             //else check that other accounts got back what they bid
-            else {
-                // let highest_bid = bid_map.get(&ctx.owner()).cloned().unwrap_or(Amount { micro_ccd: 0 }).micro_ccd;
-                //bid_map.get(&acc).unwrap();
-                if bid_map.get(&acc).unwrap_or(&Amount {micro_ccd: -25} ).micro_ccd == -25 {
-                    println!("default case hit")
-                }
-                assert_eq!(amount.micro_ccd, bid_map.get(&acc).unwrap_or(&Amount {micro_ccd: 0} ).micro_ccd );
-            }
+            assert_eq!(amount.micro_ccd, bid_map.get(&acc).unwrap_or(&Amount {micro_ccd: 0} ).micro_ccd );
         }
 
         true
