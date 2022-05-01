@@ -10,6 +10,10 @@ crate-type = ["cdylib", "rlib"]
 
 
 [dependencies]
+rust-crypto = "0.2.36"
+crypto = "0.3.0"
+bytes32 = "0.1.4-0"
+
 serde = { version = "1.0" }
 concordium-std = {path = "./concordium-rust-smart-contracts-new-contract-state/concordium-std"}
 quickcheck = "1.0.3"
