@@ -10,7 +10,6 @@ crate-type = ["cdylib", "rlib"]
 
 
 [dependencies]
-rust-crypto = "0.2.36"
 crypto = "0.3.0"
 bytes32 = "0.1.4-0"
 
