@@ -19,6 +19,7 @@ use crate::Address::Account;
 //use concordium_std::schema::Type::Timestamp;
 use concordium_std::Timestamp;
 use serde::ser::StdError;
+use crate::Errors::{MatchingAccountError, MatchingItemValueError, ProgrammerError};
 use crate::State::{Accepted, Completed, Counter, Delivered, Dispute, Failed, Rejected, Requested};
 
 #[derive(Serialize, SchemaType)]
@@ -30,7 +31,7 @@ struct InitParameter {
 }
 
 /// `concordium-client contract show`.
-#[derive(Serialize, Debug)]
+#[derive(Serialize, PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Copy)]
 pub enum State {
     Null,
     Requested,
@@ -43,14 +44,14 @@ pub enum State {
     Failed,
 }
 
-#[derive(Serialize, SchemaType)]
+#[derive(Serialize, SchemaType, Clone)]
 struct Item {
     item_value: u64,
     description: String,
 }
 
 /// A single purchase by a buyer.
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct Purchase {
     commit: u64,        // Commitment to buyer random bit
     timestamp: Timestamp,    // The last block where activity was recorded (for timeouts).
@@ -63,13 +64,27 @@ struct Purchase {
     buyer: AccountAddress,   // Address of the buyer
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct ContractState {
     vendor: AccountAddress,
     timeout: u64,
     state: State,
     contracts: Vec<Purchase>,
     listings: Vec<Item>,
+}
+
+#[derive(Debug, PartialEq, Eq, Reject)]
+enum Errors {
+    ParameterError,
+    TransferError,
+    ParseError,
+    MatchingAccountError,
+    StateError,
+    MatchingItemError,
+    MatchingItemValueError,
+    TimestampError,
+    CommitError,
+    ProgrammerError,
 }
 
 fn tsfix(t: Timestamp) -> Timestamp {
@@ -88,7 +103,7 @@ fn commerce_init<S: HasStateApi>(
         vendor: parameter.vendor,
         timeout: parameter.timeout,
         contracts: vec!(),
-        listings: vec!(),
+        listings: vec!(Item { item_value: 0, description: "".to_string() }),
     };
     Ok(state)
 }
@@ -97,337 +112,490 @@ fn commerce_init<S: HasStateApi>(
 
 #[derive(Serialize, SchemaType)]
 struct buyer_RequestPurchaseParameter {
-    info: String,
+    info: String ,
     timestamp: u64,
     item: u64,
 }
 
-#[receive(contract = "vendor", name = "buyer_RequestPurchase", parameter = "buyer_RequestPurchaseParameter", payable)]
+#[receive(contract = "vendor", name = "buyer_RequestPurchase", parameter = "buyer_RequestPurchaseParameter", payable, mutable)]
 fn buyer_RequestPurchase<S: HasStateApi>(
     ctx: &impl HasReceiveContext,
     host: &mut impl HasHost<ContractState, StateApiType=S>,
     amount: Amount,
-) -> InitResult<String> {
+) -> InitResult<u64> {
     let parameters: buyer_RequestPurchaseParameter = ctx.parameter_cursor().get()?;
     let info = parameters.info;
     let timestamp = parameters.timestamp;
     let item: usize = parameters.item as usize;
 
     //let host.state().listings;
-    ensure!(amount.micro_ccd == host.state().listings.get(item).unwrap().item_value); //must pay correct amount
+    ensure!(amount.micro_ccd == host.state().listings.get(item).unwrap().item_value);//, Errors::MatchingItemValueError); //must pay correct amount
     //let mut hasher = Sha3::keccak256();
 
     //let str = Timestamp::from_timestamp_millis(timestamp).timestamp_millis().to_string();// + ctx.sender()
     //hasher.input_str("placeholder");
-    let id: String = "placeholder".to_string();
 
-    host.state().contracts.push(Purchase {
+    //let id: String = "placeholder".to_string();
+    let id = 0; // dummy
+    let sender = match ctx.sender() {
+        Address::Account(acc) => {println!("78ASFD"); acc},
+        //AccountAddress(value) => value,
+        _ => {println!("ASDF78HU"); bail!()}
+        //Account(AccountAddress),
+        //Contract(Contbail!()
+    };
+    println!("hello4");
+    println!("__{:?}__",sender);
+
+    host.state_mut().contracts.push(Purchase {
         commit: 0,
         timestamp: Timestamp::from_timestamp_millis(timestamp),
-        item: item,
+        item: 0,
         seller_bit: false,
         notes: info,
         state: Requested,
-        buyer: ctx.sender.address,
+        buyer: sender,
     });
-    Ok(id.parse().unwrap())
+    Ok(id)
 }
 
 
-#[derive(SchemaType)]
+#[derive(SchemaType, Serialize)]
 struct idParameter {
     id: u64
 }
 
-#[derive(SchemaType)]
+#[derive(SchemaType, Serialize)]
 struct buy_abortParameter {
     id: u64,
     item: u64
 }
 
-#[receive(contract = "vendor", name = "buyer_Abort", parameter="idParameter")]
+
+#[receive(contract = "vendor", name = "buyer_Abort", parameter="idParameter", mutable)]
 fn buyer_Abort<S: HasStateApi>(
     ctx: &impl HasReceiveContext,
     host: &mut impl HasHost<ContractState, StateApiType = S>,
-) {
-    let parameters: buyer_RequestPurchaseParameter = ctx.parameter_cursor().get()?;
-    let id = parameters.id;
+) -> Result<(), Errors> {  // Result<(), FinalizeError>
+    let parameters: buy_abortParameter = match ctx.parameter_cursor().get() {
+        Ok(p) => p,
+        Err(_) => bail!(Errors::ParseError)
+    };
+    let id: usize = parameters.id as usize;
     let item: usize = parameters.item as usize;
 
-    let contract: StateRef<Purchase> = *host.state().contracts.get(id).unwrap();
-    // Only the buyer can abort the contract.
+    let borrowed_host = host.state_mut();
+
+    let mut contract = borrowed_host.contracts.get_mut(id).unwrap();
+    let mut item_value = borrowed_host.listings.get(item).unwrap().clone().item_value;
     let buyer = contract.buyer;
     let sender = ctx.sender();
-    let state = contract.state.copy();
-    ensure!(sender.matches_account(&buyer), "only the buyer can abort the contract");
-    ensure!(*state == State::Requested,
-        "Can only abort contract before vendor has interacted with contract");
+
+    //only the buyer can abort the contract
+    ensure!(sender.matches_account(&buyer), Errors::MatchingAccountError);
+
+    //Can only abort contract before vendor has interacted with contract
+    ensure!(contract.state == State::Requested, Errors::StateError);
 
     contract.state = Failed;
-    // contracts[id].buyer.transfer(address(this).balance);
-    let amount = Amount { micro_ccd: host.state().listings.get(item).unwrap().item_value };
-    host.invoke_transfer((&contract.buyer), amount); // Return money to buyer
+    //let listings: Vec<Item> = borrowed_host.listings;
+    let amount = Amount { micro_ccd: item_value };
+    let transfer = host.invoke_transfer(&buyer, amount); // Return money to buyer
     // TODO: correct?
-
+    Ok(())
 }
 
 
-#[receive(contract = "vendor", name = "buyer_ConfirmDelivery", parameter="idParameter")]
+#[receive(contract = "vendor", name = "buyer_ConfirmDelivery", parameter="idParameter", mutable)]
 fn buyer_ConfirmDelivery<S: HasStateApi>(
     ctx: &impl HasReceiveContext,
-    host: &mut impl HasHost<ContractState, StateApiType = S>,
-) {
-    let parameters: buyer_RequestPurchaseParameter = ctx.parameter_cursor().get()?;
-    let id = parameters.id;
+    host: &mut impl HasHost<ContractState, StateApiType=S>,
+) -> Result<(), Errors> {
+    let parameters: idParameter = match ctx.parameter_cursor().get() {
+        Ok(p) => p,
+        Err(_) => bail!(Errors::ParseError)
+    };
+    let id: usize = parameters.id as usize;
 
-    let contract: StateRef<Purchase> = *host.state().contracts.get(id).unwrap();
+    let contract = host.state_mut().contracts.get_mut(id).unwrap();
     let buyer = contract.buyer;
     let sender = ctx.sender();
-    ensure!(sender.matches_account(&buyer), "Only buyer can confirm the delivery");
-    ensure!(contract.state == Delivered, "Can only confirm after vendor has claimed delivery");
+
+    // "Only buyer can confirm the delivery"
+    ensure!(sender.matches_account(&buyer), Errors::MatchingAccountError);
+
+    // "Can only confirm after vendor has claimed delivery"
+    ensure!(contract.state == Delivered, Errors::StateError);
 
     contract.state = Completed;
     // send payment to seller  (corresponding to the price of the item)
-    let amount = host.state().listings.get(&contract.item).item_value;
-    host.invoke_transfer(&host.state().vendor, amount);
-
+    let item: usize = contract.clone().item as usize;
+    let amount: u64 = host.state().listings.get(item).unwrap().clone().item_value;
+    host.invoke_transfer(&host.state().vendor, Amount { micro_ccd: amount });
+    Ok(())
 }
 
 
-#[derive(SchemaType)]
+#[derive(SchemaType, Serialize)]
 struct Buyer_id_commitment {
     id: u64,
     commitment: u64,
 }
 
-#[receive(contract = "vendor", name = "buyer_DisputeDelivery", parameter = "buyer_id_commitment", payable)]
+#[receive(contract = "vendor", name = "buyer_DisputeDelivery", parameter = "buyer_id_commitment", payable, mutable)]
 fn buyer_DisputeDelivery<S: HasStateApi>(
     ctx: &impl HasReceiveContext,
     host: &mut impl HasHost<ContractState, StateApiType = S>,
     amount: Amount,
-) {
-    let parameters: Buyer_id_commitment = ctx.parameter_cursor().get()?;
-    let id = parameters.id;
+) -> Result<(), Errors> {
+    let parameters: Buyer_id_commitment = match ctx.parameter_cursor().get() {
+        Ok(p) => p,
+        Err(_) => bail!(Errors::ParseError)
+    };
+    let id: usize = parameters.id as usize;
     let commitment = parameters.commitment;
 
-    let contract = host.state().contracts.get(&id).unwrap();
+    let borrowed_host = host.state_mut();
+
+    let contract = borrowed_host.contracts.get_mut(id).unwrap();
+    let item: usize = contract.clone().item as usize;
+    let item_value = borrowed_host.listings.get(item).unwrap().clone().item_value;
     let buyer = contract.buyer;
     let sender = ctx.sender();
-    ensure!(sender.matches_account(&buyer), "Only buyer can dispute the delivery");
-    ensure!(contract.state == Delivered, "Can only dispute delivery when vendor has claimed delivery");
-    ensure!(host.listings.get(contract.item).item_value == amount, "Has to wager same value as transaction");
+
+
+    // Only buyer can dispute the delivery
+    ensure!(sender.matches_account(&buyer), Errors::MatchingAccountError);
+
+    // Can only dispute delivery when vendor has claimed delivery
+    ensure!(contract.state == Delivered, Errors::StateError);
+
+    // Has to wager same value as transaction
+    ensure!(item_value == amount.micro_ccd, Errors::MatchingItemValueError);
     // ContractState.listings.entry(item).item_value
 
     contract.state = Dispute;
-    contract.commit = commitment; // Store buyer's commitment to random bit
+    // Store buyer's commitment to random bit
+    contract.commit = commitment;
     contract.timestamp = tsfix(contract.timestamp);
+    Ok(())
 }
 
 
 /// @notice Buyer calls timeout and receives back the money in the contract. Can only be done if timeout seconds has passed without seller action.
 /// @param id Hash of the contract.
-#[receive(contract = "vendor", name = "buyer_CallTimeout", parameter="idParameter")]
+#[receive(contract = "vendor", name = "buyer_CallTimeout", parameter="idParameter", mutable)]
 fn buyer_CallTimeout<S: HasStateApi>(
     ctx: &impl HasReceiveContext,
     host: &mut impl HasHost<ContractState, StateApiType = S>,
-) {
-    let parameters: Buyer_id_commitment = ctx.parameter_cursor().get()?;
-    let id = parameters.id;
+) -> Result<(), Errors> {
+    let parameters: idParameter = match ctx.parameter_cursor().get() {
+        Ok(p) => p,
+        Err(_) => bail!(Errors::ParseError)
+    };
+    let id: usize = parameters.id as usize;
 
-    let contract: StateRef<Purchase> = *host.state().contracts.get(&id).unwrap();
+    let borrowed_host = host.state_mut();
+
+    let contract = borrowed_host.contracts.get_mut(id).unwrap();
+    let item: usize = contract.clone().item as usize;
+    let amount = borrowed_host.listings.get(item).unwrap().clone().item_value;
     let buyer = contract.buyer;
     let sender = ctx.sender();
-    ensure!(sender.matches_account(buyer), "Only buyer can call this timeout function");
-    ensure!(contract.state == Dispute || contract.state == Accepted,
-        "contract state is not disputed or accepted");
-    ensure!(tsfix(contract.timestamp) > contract.timestamp + host.state().timeout,
-        "can only call timeout when timeout seconds has passed");
+
+    // Only buyer can call this timeout function
+    ensure!(sender.matches_account(&buyer), Errors::MatchingAccountError);
+
+    // contract state is not disputed or accepted
+    ensure!(contract.state == Dispute || contract.state == Accepted, Errors::StateError);
+
+    // can only call timeout when timeout seconds has passed
+    ensure!(tsfix(contract.timestamp).timestamp_millis() > contract.timestamp.timestamp_millis()
+        + borrowed_host.timeout,
+        Errors::TimestampError
+    );
 
     contract.state = Failed;
     // Transfer funds to buyer
-
-    let amount = host.state().listings.get(&contract.item).item_value;
-    host.invoke_transfer(&contract.buyer, amount);
+    host.invoke_transfer(&buyer, Amount { micro_ccd: amount });
+    Ok(())
 }
 
 
-#[derive(SchemaType)]
+#[derive(SchemaType, Serialize)]
 struct buyer_OpenCommitmentParameter {
     id: u64,
     buyerBit: bool,
     nonce: u64
 }
-#[receive(contract = "vendor", name = "buyer_OpenCommitment", parameter="buyer_OpenCommitmentParameter")]
+
+#[receive(contract = "vendor", name = "buyer_OpenCommitment", parameter="buyer_OpenCommitmentParameter", mutable)]
 fn buyer_OpenCommitment<S: HasStateApi>(
     ctx: &impl HasReceiveContext,
     host: &mut impl HasHost<ContractState, StateApiType = S>,
-) {
-    let parameters: buyer_OpenCommitmentParameter = ctx.parameter_cursor.get?;
-    let id = parameters.id;
+) -> Result<(), Errors> {
+    let parameters: buyer_OpenCommitmentParameter = match ctx.parameter_cursor().get() {
+        Ok(p) => p,
+        Err(_) => bail!(Errors::ParseError)
+    };
+    let id: usize = parameters.id as usize;
     let buyerBit = parameters.buyerBit;
     let nonce = parameters.nonce;
 
-    let contract: StateRef<Purchase> = *host.state().contracts.get(&id).unwrap();
-    let buyer = contract.buyer;
-    let sender = ctx.sender();
-    ensure!(sender.matches_account(&buyer), "Only buyer can open commitment");
-    ensure!(contract.state == Counter, "Can only open commitment if seller has countered.");
+    let borrowed_host = host.state_mut();
 
+    let contract = borrowed_host.contracts.get_mut(id).unwrap();
+    let item: usize = contract.clone().item as usize;
+    let item_value = borrowed_host.listings.get(item).unwrap().clone().item_value;
+    let buyer = contract.buyer;
+    let vendor = borrowed_host.vendor;
+    let sender = ctx.sender();
+
+    // Only buyer can open commitment
+    ensure!(sender.matches_account(&buyer), Errors::StateError);
+
+    // Can only open commitment if seller has countered
+    ensure!(contract.state == Counter, Errors::StateError);
     //let mut hasher = Sha3::keccak256();
     //hasher.input_str("placeholder"); // probably not what we are looking for &(stringify!(buyerBit, id, nonce))
     //let hashed: String = hasher.result_str();
 
-    ensure!(contract.commit == 0, "Check that (_buyerBit,id,nonce) is opening of commitment");
+    ensure!(contract.commit == 0, Errors::CommitError); //"Check that (_buyerBit,id,nonce) is opening of commitment");
+
 
     contract.state = Failed;
-    let value = host.state().listings.get(&contract.item).unwrap().item_value;
-    let amount_to_transfer = Amount { micro_ccd: 2*value };
+
+    let amount_to_transfer = Amount { micro_ccd: 2*item_value };
     if contract.seller_bit != buyerBit {
-        host.invoke_transfer(&host.state().vendor,  amount_to_transfer);
+        host.invoke_transfer(&vendor,  amount_to_transfer);
     } else {
-        host.invoke_transfer(&contract.buyer, amount_to_transfer);
+        host.invoke_transfer(&buyer, amount_to_transfer);
     }
+    Ok(())
 }
 
 // SELLER FUNCTIONS
 
-#[receive(contract = "vendor", name = "seller_CallTimeout", parameter="idParameter")]
+#[receive(contract = "vendor", name = "seller_CallTimeout", parameter="idParameter", mutable)]
 fn seller_CallTimeout<S: HasStateApi>(
     ctx: &impl HasReceiveContext,
     host: &mut impl HasHost<ContractState, StateApiType = S>,
-) {
-    let parameters: idParameter = ctx.parameter_cursor().get()?;
-    let id = parameters.id;
-    let contract = host.state().contracts.get(&id).unwrap();
-    let vendor = host.state().vendor;
+) -> Result<(), Errors> {
+    let parameters: idParameter = match ctx.parameter_cursor().get() {
+        Ok(p) => p,
+        Err(_) => bail!(Errors::ParseError)
+    };
+    let id: usize = parameters.id as usize;
+
+    let borrowed_host = host.state_mut();
+
+    let contract = borrowed_host.contracts.get_mut(id).unwrap();
+    let item: usize = contract.clone().item as usize;
+    let amount = borrowed_host.listings.get(item).unwrap().item_value;
     let sender = ctx.sender();
-    ensure!(sender.matches_account(&vendor), "Only seller can call this timeout function");
-    ensure!(contract.state == Delivered
-        || contract.state == Counter,
-        "The buyer has either not responded to delivery OR the buyer does not open their commitment");
-    ensure!(tsfix(contract.timestamp) > contract.timestamp + host.state().timeout,
-        "Can only timeout after timeout second");
+    let vendor = borrowed_host.vendor;
+
+    // Only seller can call this timeout function
+    ensure!(sender.matches_account(&vendor), Errors::MatchingAccountError);
+
+    // The buyer has either not responded to delivery OR the buyer does not open their commitment
+    ensure!(contract.state == Delivered || contract.state == Counter, Errors::StateError);
+
+    // Can only timeout after timeout second
+    ensure!(tsfix(contract.timestamp).timestamp_millis() > contract.timestamp.timestamp_millis() + borrowed_host.timeout, Errors::TimestampError);
 
     contract.state = Completed;
     // Transfer funds to seller
-    let amount = host.state().listings.get(&contract.item).item_value;
-    host.invoke_transfer(&host.state().vendor, amount);
+    host.invoke_transfer(&vendor, Amount {micro_ccd: amount});
+    Ok(())
 }
 
 
-#[receive(contract = "vendor", name = "seller_RejectContract", parameter = "idParameter")]
+#[receive(contract = "vendor", name = "seller_RejectContract", parameter = "idParameter", mutable)]
 fn seller_RejectContract<S: HasStateApi>(
     ctx: &impl HasReceiveContext,
     host: &mut impl HasHost<ContractState, StateApiType = S>,
-) {
-    let parameters: idParameter = ctx.parameter_cursor().get()?;
-    let id = parameters.id;
-    let contract = host.state().contracts.get(&id).unwrap();
+) -> Result<(), Errors> {
+    let parameters: idParameter = match ctx.parameter_cursor().get() {
+        Ok(p) => p,
+        Err(_) => bail!(Errors::ParseError)
+    };
+    let id: usize = parameters.id as usize;
 
-    ensure!(ctx.sender().matches_account(host.state().vendor), "only seller can reject the contract");
-    ensure!(contract.state == Requested, "can only reject contract when buyer has requested");
+    let borrowed_host = host.state_mut();
+
+    let contract = borrowed_host.contracts.get_mut(id).unwrap();
+    let item: usize = contract.clone().item as usize;
+    let amount = Amount { micro_ccd: borrowed_host.listings.get(item).unwrap().item_value};
+    let sender = ctx.sender();
+    let vendor = borrowed_host.vendor;
+    let buyer = contract.buyer;
+
+    // Only seller can reject the contract
+    ensure!(sender.matches_account(&vendor), Errors::MatchingAccountError);
+
+    // Can only reject contract when buyer has requested
+    ensure!(contract.state == Requested, Errors::StateError);
+
 
     contract.state = Rejected;
     // transfer funds back to buyer
-    let amount = Amount { micro_ccd: host.state().listings.get(&contract.item).unwrap().item_value};
-    host.invoke_transfer(&contract.buyer, amount);
+    host.invoke_transfer(&buyer,  amount);
+    Ok(())
 }
 
 
-#[receive(contract = "vendor", name = "seller_AcceptContract", parameter = "idParameter")]
+#[receive(contract = "vendor", name = "seller_AcceptContract", parameter = "idParameter", mutable)]
 fn seller_AcceptContract<S: HasStateApi>(
     ctx: &impl HasReceiveContext,
     host: &mut impl HasHost<ContractState, StateApiType = S>,
-) {
-    let parameters: idParameter = ctx.parameter_cursor().get()?;
-    let id = parameters.id;
-    let contract: StateRef<Purchase> = *host.state().contracts.get(&id).unwrap();
-    ensure!(ctx.sender() == host.state().vendor, "Only seller can accept the contract");
-    ensure!(contract.state == Requested, "Can only accept contract when buyer has requested");
+) -> Result<(), Errors> {
+    let parameters: idParameter = match ctx.parameter_cursor().get() {
+        Ok(p) => p,
+        Err(_) => bail!(Errors::ParseError)
+    };
+    let id: usize = parameters.id as usize;
+
+    let borrowed_host = host.state_mut();
+
+    let contract = borrowed_host.contracts.get_mut(id).unwrap();
+    let sender = ctx.sender();
+    let vendor = borrowed_host.vendor;
+
+    ensure!(sender.matches_account(&vendor), Errors::MatchingAccountError);//"Only seller can accept the contract");
+    ensure!(contract.state == Requested, Errors::StateError);
 
     contract.state = Accepted;
     contract.timestamp = tsfix(contract.timestamp);
+    Ok(())
 }
 
 
-#[receive(contract = "vendor", name = "seller_ItemWasDelivered", parameter = "idParameter")]
+#[receive(contract = "vendor", name = "seller_ItemWasDelivered", parameter = "idParameter", mutable)]
 fn seller_ItemWasDelivered<S: HasStateApi>(
     ctx: &impl HasReceiveContext,
     host: &mut impl HasHost<ContractState, StateApiType = S>,
-) {
-    let parameters: idParameter = ctx.parameter_cursor().get()?;
-    let id = parameters.id;
+) -> Result<(), Errors> {
+    let parameters: idParameter = match ctx.parameter_cursor().get() {
+        Ok(p) => p,
+        Err(_) => bail!(Errors::ParseError)
+    };
+    let id: usize = parameters.id as usize;
 
-    let contract = host.state().contracts.get(&id).unwrap();
-    ensure!(ctx.sender() == host.state().vendor);
-    ensure!(contract.state == Accepted);
+    let borrowed_host = host.state_mut();
+
+    let contract = borrowed_host.contracts.get_mut(id).unwrap();
+    let sender = ctx.sender();
+    let vendor = borrowed_host.vendor;
+
+    ensure!(sender.matches_account(&vendor), Errors::MatchingAccountError);
+    ensure!(contract.state == Accepted, Errors::StateError);
 
     contract.state = Delivered;
     contract.timestamp = tsfix(contract.timestamp);
+    Ok(())
 }
 
-#[receive(contract = "vendor", name = "seller_ForfeitDispute", parameter = "idParameter")]
+#[receive(contract = "vendor", name = "seller_ForfeitDispute", parameter = "idParameter", mutable)]
 fn seller_ForfeitDispute<S: HasStateApi>(
     ctx: &impl HasReceiveContext,
     host: &mut impl HasHost<ContractState, StateApiType = S>,
-) {
-    let parameters: idParameter = ctx.parameter_cursor().get()?;
-    let id = parameters.id;
-    let contract = host.state().contracts.get(&id).unwrap();
-    ensure!(ctx.sender() == host.state().vendor, "Only seller can forfeit the dispute of the buyer");
-    ensure!(contract.state == Dispute, "Can only forfeit dispute if buyer disputed delivery");
+) -> Result<(), Errors> {
+    let parameters: idParameter = match ctx.parameter_cursor().get() {
+        Ok(p) => p,
+        Err(_) => bail!(Errors::ParseError)
+    };
+    let id: usize = parameters.id as usize;
+
+    let borrowed_host = host.state_mut();
+
+    let contract = borrowed_host.contracts.get_mut(id).unwrap();
+    let item: usize = contract.clone().item as usize;
+    let item_value = borrowed_host.listings.get(item).unwrap().item_value;
+    let sender = ctx.sender();
+    let vendor = borrowed_host.vendor;
+    let amount = Amount { micro_ccd: item_value };
+    let buyer = contract.buyer;
+
+    // Only seller can forfeit the dispute of the buyer
+    ensure!(sender.matches_account(&vendor), Errors::MatchingAccountError);
+
+    // Can only forfeit dispute if buyer disputed delivery
+    ensure!(contract.state == Dispute, Errors::StateError);
 
     contract.state = Failed;
     // Transfer funds to buyer
-    let amount = Amount { micro_ccd: host.state().listings.get(&contract.item).unwrap().item_value };
-    host.invoke_transfer(&contract.buyer, amount);
+    host.invoke_transfer(&buyer, amount);
+    Ok(())
 }
 
 
-#[derive(SchemaType)]
+#[derive(SchemaType, Serialize)]
 struct seller_CounterDispute {
     id: u64,
     randomBit: bool,
 }
-#[receive(contract = "vendor", name = "seller_CounterDispute", parameter="seller_CounterDispute", payable)]
+#[receive(contract = "vendor", name = "seller_CounterDispute", parameter="seller_CounterDispute", payable, mutable)]
 fn seller_CounterDispute<S: HasStateApi>(
     ctx: &impl HasReceiveContext,
     host: &mut impl HasHost<ContractState, StateApiType = S>,
     amount: Amount,
-) {
-    let parameters: buyer_RequestPurchaseParameter = ctx.parameter_cursor().get()?;
-    let id = parameters.id;
+) -> Result<(), Errors> {
+    let parameters: seller_CounterDispute = match ctx.parameter_cursor().get() {
+        Ok(p) => p,
+        Err(_) => bail!(Errors::ParseError)
+    };
+    let id: usize = parameters.id as usize;
     let randomBit = parameters.randomBit;
 
-    let contract = host.state().contracts.get(id).unwrap();
-    ensure!(ctx.sender() == host.state().vendor, "only seller can counter dispute");
-    ensure!(contract.state == Dispute, "can only counter disputre if buyer disputed delivery");
-    let listing_amount = Amount { micro_ccd: host.state().listings.get(&contract.item).unwrap().item_value};
-    ensure!(amount == listing_amount, "seller has to wager the value of the item");
+    let borrowed_host = host.state_mut();
+
+    let contract = borrowed_host.contracts.get_mut(id).unwrap();
+    let sender = ctx.sender();
+    let vendor = borrowed_host.vendor;
+
+    let item: usize = contract.clone().item as usize;
+    let item_value = borrowed_host.listings.get(item).unwrap().item_value;
+    let listing_amount = Amount { micro_ccd: item_value };
+
+    // Only seller can counter dispute
+    ensure!(sender.matches_account(&vendor), Errors::MatchingAccountError);
+
+    // Can only counter dispute if buyer disputed delivery
+    ensure!(contract.state == Dispute, Errors::StateError);
+
+    // Seller has to wager the value of the item
+    ensure!(amount == listing_amount, Errors::MatchingItemValueError);
 
     contract.state = Counter;
     contract.timestamp = tsfix(contract.timestamp);
     contract.seller_bit = randomBit;
+    Ok(())
 }
 
-#[derive(SchemaType)]
+#[derive(SchemaType, Serialize)]
 struct seller_UpdateListings {
     itemId: u64,
     description: String,
     value: u64,
 }
-#[receive(contract = "vendor", name = "seller_UpdateListings", parameter = "seller_UpdateListings")]
+
+#[receive(contract = "vendor", name = "seller_UpdateListings", parameter = "seller_UpdateListings", mutable)]
 fn seller_UpdateListings<S: HasStateApi>(
     ctx: &impl HasReceiveContext,
     host: &mut impl HasHost<ContractState, StateApiType = S>,
-) {
-    let parameters: seller_UpdateListings = ctx.parameter_cursor().get()?;
+) -> Result<(), Errors> {
+    let parameters: seller_UpdateListings = match ctx.parameter_cursor().get() {
+        Ok(p) => p,
+        Err(_) => bail!(Errors::ParseError)
+    };
 
-    ensure!(ctx.sender() == host.state().vendor, "Only seller can update listings");
+    ensure!(ctx.sender().matches_account(&host.state().vendor), Errors::MatchingAccountError); // "Only seller can update listings"
 
-    let item =  host.state().listings.get(&parameters.itemId).unwrap();
-    item.item_value = parameters.value * (10**9); // Multiply by 10^9 to get gwei in wei
+    let item =  host.state_mut().listings.get_mut(parameters.itemId as usize).unwrap();
+    item.item_value = parameters.value * (10^9); // Multiply by 10^9 to get gwei in wei
     item.description = parameters.description;
+    Ok(())
 }
 
 
@@ -459,13 +627,6 @@ mod tests {
         std::assert_eq!(actual, err);
     }
 
-    fn init_create_parameter() -> InitParameter {
-        InitParameter {
-            vendor: new_account(),
-            timeout: 3
-        }
-    }
-
     fn create_parameter_bytes(parameter: &InitParameter) -> Vec<u8> { to_bytes(parameter) }
 
     fn parametrized_init_ctx(parameter_bytes: &Vec<u8>) -> TestInitContext {
@@ -474,13 +635,13 @@ mod tests {
         ctx
     }
 
-    fn createInitialState<'a, S: HasStateApi>() -> ContractState {
-        let init_parameter = init_create_parameter();
-        let parameter_bytes = create_parameter_bytes(&init_parameter);
-        let ctx0 = parametrized_init_ctx(&parameter_bytes);
-        let initial_state = commerce_init(&ctx0, &mut TestStateBuilder::new()).expect("Initialization should pass");
-        return initial_state;
-    }
+    //fn createInitialState() -> ContractState {
+    //    let init_parameter = init_create_parameter();
+    //    let parameter_bytes = create_parameter_bytes(&init_parameter);
+    //    let ctx0 = parametrized_init_ctx(&parameter_bytes);
+    //    let initial_state = commerce_init(&ctx0, &mut TestStateBuilder::new()).expect("Initialization should pass");
+    //    return initial_state;
+    //}
 
     fn new_account() -> AccountAddress {
         let account = AccountAddress([ADDRESS_COUNTER.load(Ordering::SeqCst); 32]);
@@ -516,18 +677,20 @@ mod tests {
     use crate::State::{Accepted, Completed, Counter, Delivered, Dispute, Failed, Null, Rejected, Requested};
 
 
-    //#[derive(Sized)]
+    #[derive(Clone, Debug)]
     pub struct ValidPath(Vec<Choice>);
 
+    #[derive(Clone, Debug, Copy)]
     pub struct Choice{ state: State, func: Funcs }
 
     //clone values
-    impl Clone for ValidPath {
+    /*impl Clone for ValidPath {
         fn clone(&self) -> Self {
             Self(self.0.clone())
         }
-    }
+    }*/
 
+    #[derive(Clone, Debug, Copy)]
     pub enum Funcs {
         buyer_Abort,
         seller_RejectContract,
@@ -575,14 +738,14 @@ mod tests {
             ]);
 
             // Start at state Requested
-            let mut choices: &Vec<Choice> = stateMappings.get(&State::Null).unwrap();
+            let mut choices: &Vec<Choice> = stateMappings.get(&State::Requested).unwrap();
 
             // then we add that our path started in state Requested
-            let mut path: Vec<Choice> = vec![*choices.get(0).unwrap()];
+            let mut path: Vec<Choice> = vec![];
 
             // Now we take random decisions from the ones possible
             while choices.len() > 0 {
-                let randomIndex = u64::arbitrary(g) % choices.len();
+                let randomIndex = (u64::arbitrary(g) as usize) % choices.len();
                 let &Choice {state, func} = choices.get(randomIndex).unwrap();
                 path.push(Choice {state, func});
                 choices = stateMappings.get(&state).unwrap();
@@ -592,91 +755,136 @@ mod tests {
         }
     }
 
+
+    fn create_ctx_with_owner<'a>(
+        owner: AccountAddress,
+        sender: AccountAddress,
+        slot_time: u64,
+    ) -> TestReceiveContext<'a> {
+        let mut ctx = TestReceiveContext::empty();
+        ctx.set_sender(Address::Account(sender));
+        ctx.set_owner(owner);
+        ctx.set_metadata_slot_time(Timestamp::from_timestamp_millis(slot_time));
+        ctx
+    }
+
+    fn create_ctx<'a>(
+        sender: AccountAddress,
+        slot_time: u64,
+    ) -> TestReceiveContext<'a> {
+        let mut ctx = TestReceiveContext::empty();
+        ctx.set_sender(Address::Account(sender));
+        ctx.set_metadata_slot_time(Timestamp::from_timestamp_millis(slot_time));
+        ctx
+    }
+
     #[quickcheck]
     fn property_check(validPath: ValidPath) -> bool {
+        let mut state_builder = TestStateBuilder::new();
 
-        let initialContractState: ContractState<dyn HasStateApi> = createInitialState();
-        //let host: &mut TestHost<ContractState<dyn HasStateApi>> = &mut TestHost::new(currentContractState.cloned().state, TestStateBuilder::new());
+        let owner_accountAddress = new_account();
+        let owner_account = Address::Account(owner_accountAddress);
+        let owner_ctx = create_ctx_with_owner(
+            owner_accountAddress,
+            owner_accountAddress,
+            2
+        );
+            //TestReceiveContext::empty()
+            //.set_sender(owner_account)
+            //.set_owner(owner_accountAddress);
+            //.set_metadata_slot_time(Timestamp::from_timestamp_millis(slot_time))
+
+        let buyer_accountAddress = new_account();
+        let buyer_account = Address::Account(buyer_accountAddress);
+        let buyer_ctx = create_ctx(buyer_accountAddress, 3);
+            //TestReceiveContext::empty()
+            //.set_sender(buyer_account);
+            //.set_metadata_slot_time(Timestamp::from_timestamp_millis(slot_time));
 
 
-        let init_parameter = init_create_parameter();
-        let parameter_bytes = create_parameter_bytes(&init_parameter);
-        let ctx0 = parametrized_init_ctx(&parameter_bytes);
-        let &mut state_builder = TestStateBuilder::new();
-        let initial_state = commerce_init(&ctx0, state_builder).expect("Initialization should pass");
-        let mut host = TestHost::new(initial_state, state_builder);
+        //let initialContractState: ContractState = createInitialState();
+        let init_parameter = create_parameter_bytes(&InitParameter {
+            vendor: owner_accountAddress,
+            timeout: 3
+        });
+        let initialContractState: ContractState = commerce_init(
+             &parametrized_init_ctx(&init_parameter),
+    &mut TestStateBuilder::new()
+        ).expect("Initialization should pass");
 
-        let buyer_RequestPurchaseParameter = to_bytes(&buyer_RequestPurchaseParameter{
+        let mut host = TestHost::new(initialContractState.clone(), state_builder);
+
+        let state = host.state_mut();
+        state.listings.insert(0, Item { item_value: 21, description: "Some item".to_string() });
+
+        let (buyer_RequestPurchaseParameter) = to_bytes(&buyer_RequestPurchaseParameter{
             info: "".to_string(),
             timestamp: 0,
             item: 0,
         });
-        let ctx_buyerRequestPurchase_param = TestInitContext::empty().set_parameter(buyer_RequestPurchaseParameter);
-        let id = buyer_RequestPurchase(ctx_buyerRequestPurchase_param, &mut host, Amount {micro_ccd: 21}).unwrap();
+
+        let id = buyer_RequestPurchase(
+            create_ctx(buyer_accountAddress, 3).set_parameter(&buyer_RequestPurchaseParameter),
+            &mut host,
+            Amount {micro_ccd: 21}
+        ).unwrap();
 
 
         // buyer_RequestPurchase(&ctx0, &mut host, Amount { micro_ccd: 10 });
 
         let contract_name =  "Commerce Contract";
         let id_parameter = to_bytes(&idParameter{
-            id: to_bytes(&id.clone()),
+            id: id,
         });
         let seller_id_randomBit_param = to_bytes(&seller_CounterDispute {
-            id: to_bytes(&id.clone()),
+            id: id,
             randomBit: false, // type bool
         });
         let buyer_id_commitment_parameter = to_bytes(&Buyer_id_commitment {
-            id: to_bytes(&id.clone()),
-            commitment: to_bytes(&id.clone()),
+            id: id,
+            commitment: 1, // dummy
         });
         let buyer_id_buyerBit_nonce_param =  to_bytes(&buyer_OpenCommitmentParameter {
-            id: to_bytes(&id.clone()),
+            id: id,
             buyerBit: true,
-            nonce: to_bytes(&id.clone()),
+            nonce: 0, // dummy
         });
-
-        let ctx_idParameter = TestInitContext::empty().set_parameter(id_parameter);
-        let ctx_id_randomBit_param = TestInitContext::empty().set_parameter(seller_id_randomBit_param);
-        let ctx_id_commit_param = TestInitContext::empty().set_parameter(buyer_id_commitment_parameter);
-        let ctx_id_buyerBit_nonce_param = TestInitContext::empty().set_parameter(buyer_id_buyerBit_nonce_param);
 
         let test_param = to_bytes(&seller_UpdateListings {
             itemId: 0,
             description: "".to_string(),
             value: 0
         });
-        let mut test_ctx = parametrized_init_ctx(test_param);
+        let mut test_ctx = parametrized_init_ctx(&test_param);
 
 
-        let mut currentContractState = initialContractState;
+        let mut currentContractState = initialContractState.clone();
         for choice in validPath.0.into_iter() {
             assert!(currentContractState.state == choice.state); // THIS IS THE PROPERTY WE ARE TESTING
 
 
-            match choice.clone().get(choice.func) {
-                "seller_ItemWasDelivered" => seller_ItemWasDelivered(ctx_idParameter, &mut host),
-                "buyer_Abort" => buyer_Abort(ctx_idParameter, &mut host),
-                "seller_RejectContract" => seller_RejectContract(ctx_idParameter, &mut host),
-                "buyer_CallTimeout" => buyer_CallTimeout( ctx_idParameter, &mut host),
-                "seller_ItemWasDelivered" => seller_ItemWasDelivered( ctx_idParameter, &mut host),
-                "buyer_ConfirmDelivery" => buyer_ConfirmDelivery( ctx_idParameter, &mut host),
-                "seller_CallTimeout" => seller_CallTimeout( ctx_idParameter, &mut host),
-                "buyer_DisputeDelivery" => buyer_DisputeDelivery(buyer_id_commitment_parameter, &mut host, Amount {micro_ccd: 21}),
-                "buyer_CallTimeout" => buyer_CallTimeout( ctx_idParameter, &mut host),
-                "seller_ForfeitDispute" => seller_ForfeitDispute( ctx_idParameter, &mut host),
-                "seller_CounterDispute" => seller_CounterDispute( ctx_id_randomBit_param, &mut host, Amount{ micro_ccd: 21}),
-                "buyer_OpenCommitment" => buyer_OpenCommitment(ctx_idParameter, &mut host),
-                "seller_CallTimeout" => seller_CallTimeout(ctx_idParameter, &mut host),
-                _ => bail!("We shouldn't get here"),
-            }
+            match choice.func {
+                Funcs::seller_ItemWasDelivered => seller_ItemWasDelivered(TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
+                Funcs::buyer_Abort => buyer_Abort(TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
+                Funcs::seller_RejectContract => seller_RejectContract(TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
+                Funcs::buyer_CallTimeout => buyer_CallTimeout( TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
+                Funcs::seller_ItemWasDelivered => seller_ItemWasDelivered( TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
+                Funcs::buyer_ConfirmDelivery => buyer_ConfirmDelivery( TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
+                Funcs::seller_CallTimeout => seller_CallTimeout( TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
+                Funcs::buyer_DisputeDelivery => buyer_DisputeDelivery(TestReceiveContext::empty().set_parameter(&buyer_id_commitment_parameter), &mut host, Amount {micro_ccd: 21}),
+                Funcs::buyer_CallTimeout => buyer_CallTimeout( TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
+                Funcs::seller_ForfeitDispute => seller_ForfeitDispute( TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
+                Funcs::seller_CounterDispute => seller_CounterDispute( TestReceiveContext::empty().set_parameter(&seller_id_randomBit_param), &mut host, Amount{ micro_ccd: 21}),
+                Funcs::buyer_OpenCommitment => buyer_OpenCommitment(TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
+                Funcs::seller_CallTimeout => seller_CallTimeout(TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
+                _ => {println!("WE SHOULD NEVER GET HERE"); return false;}
+            };
 
 
 
-            let contractState: ContractState<dyn HasStateApi> = host.state_mut().clone(); // get new ContractState
+            let contractState: ContractState = host.state_mut().clone(); // get new ContractState
             currentContractState = contractState; // update current ContractState for next iteration
         }
-
-
 
         //Things to consider:
 
@@ -689,10 +897,6 @@ mod tests {
 
         //Should ensure accounts get their money back if something goes wrong
         //Should ensure that seller gets paid if we get to the Completed State
-
-
-
-
 
         return true
 
