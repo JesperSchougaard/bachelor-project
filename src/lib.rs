@@ -14,12 +14,14 @@ use core::fmt::Debug;
 use std::borrow::{Borrow, BorrowMut};
 use std::fmt::Error;
 use std::io::Bytes;
+use std::num::NonZeroI32;
 use bytes32::Bytes32;
 use crate::Address::Account;
 //use concordium_std::schema::Type::Timestamp;
 use concordium_std::Timestamp;
 use serde::ser::StdError;
 use crate::Errors::{MatchingAccountError, MatchingItemValueError, ProgrammerError};
+use crate::schema::Type::I32;
 use crate::State::{Accepted, Completed, Counter, Delivered, Dispute, Failed, Rejected, Requested};
 
 #[derive(Serialize, SchemaType)]
@@ -89,6 +91,7 @@ enum Errors {
     TimestampError,
     CommitError,
     ProgrammerError,
+    AmountError,
 }
 
 fn tsfix(t: Timestamp) -> Timestamp {
@@ -132,12 +135,18 @@ fn buyer_RequestPurchase<S: HasStateApi>(
     let item: usize = parameters.item as usize;
 
     // Must pay correct amount
+    println!("request purchase amount: {:?}", amount.micro_ccd);
+    println!("item value: {:?}", host.state().listings.get(item).unwrap().item_value);
+
+    //ensure!(amount.micro_ccd == host.state().listings.get(item).unwrap().item_value, concordium_std::Reject {error_code: new_unchecked(2), return_value: None});
     ensure!(amount.micro_ccd == host.state().listings.get(item).unwrap().item_value);
+
+    println!("Passed ensure in request purchase");
 
     let id = 0; // dummy
     let sender = match ctx.sender() {
         Address::Account(acc) => acc,
-        _ => bail!()
+        _ => {println!("WE SHOULD NEVER GET HERE"); bail!()}
     };
     //println!("__{:?}__",sender);
 
@@ -465,6 +474,7 @@ fn seller_ItemWasDelivered<S: HasStateApi>(
 
     ensure!(sender.matches_account(&vendor), Errors::MatchingAccountError);
     ensure!(contract.state == Accepted, Errors::StateError);
+    println!("passed item was delivered ensures");
 
     contract.state = Delivered;
     contract.timestamp = tsfix(contract.timestamp);
@@ -770,6 +780,7 @@ mod tests {
 
     #[quickcheck]
     fn property_check(validPath: ValidPath) -> bool {
+        println!("================================================================================================================================================================================================================================================================================================================================================================================================");
 
         // Create a test statebuilder
         let mut state_builder = TestStateBuilder::new();
@@ -857,39 +868,39 @@ mod tests {
 
         println!("\n\nValidPath to test: [{}]; \n\n", validPath);
 
-        let mut currentContractState = host.state_mut();
-        println!("[1s3] contract state: {:?}", currentContractState.contracts.get(0));
+        //let mut currentContractState = host.state_mut();
+        //println!("[1s3] contract state: {:?}", currentContractState.contracts.get(0));
         //let mut currentContractState = host.state_mut().clone();
 
 
         for choice in validPath.0.into_iter() {
 
-            println!("[2s3] state: {:?}--------------------------", currentContractState.contracts.get(0));
+            //println!("[2s3] state: {:?}--------------------------", host.state_mut().contracts.get(0));
             match choice.func {
                 Funcs::seller_ItemWasDelivered => seller_ItemWasDelivered(create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&id_parameter), host.borrow_mut()),
-                Funcs::buyer_Abort => buyer_Abort(create_ctx(buyer_accountAddress, 3).set_parameter(&id_parameter), &mut host),
-                Funcs::seller_RejectContract => seller_RejectContract(create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&id_parameter), &mut host),
-                Funcs::buyer_CallTimeout => buyer_CallTimeout( create_ctx(buyer_accountAddress, 3).set_parameter(&id_parameter), &mut host),
-                Funcs::seller_ItemWasDelivered => seller_ItemWasDelivered(create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&id_parameter), &mut host),
-                Funcs::buyer_ConfirmDelivery => buyer_ConfirmDelivery(create_ctx(buyer_accountAddress, 3).set_parameter(&id_parameter), &mut host),
-                Funcs::seller_CallTimeout => seller_CallTimeout(create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&id_parameter), &mut host),
-                Funcs::buyer_DisputeDelivery => buyer_DisputeDelivery(create_ctx(buyer_accountAddress, 3).set_parameter(&buyer_id_commitment_parameter), &mut host, Amount {micro_ccd: 21}),
-                Funcs::buyer_CallTimeout => buyer_CallTimeout(create_ctx(buyer_accountAddress, 3).set_parameter(&id_parameter), &mut host),
-                Funcs::seller_ForfeitDispute => seller_ForfeitDispute( create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&id_parameter), &mut host),
-                Funcs::seller_CounterDispute => seller_CounterDispute( create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&seller_id_randomBit_param), &mut host, Amount{ micro_ccd: 21}),
-                Funcs::buyer_OpenCommitment => buyer_OpenCommitment(create_ctx(buyer_accountAddress, 3).set_parameter(&id_parameter), &mut host),
-                Funcs::seller_CallTimeout => seller_CallTimeout( create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&id_parameter), &mut host),
+                Funcs::buyer_Abort => buyer_Abort(create_ctx(buyer_accountAddress, 3).set_parameter(&id_parameter), host.borrow_mut()),
+                Funcs::seller_RejectContract => seller_RejectContract(create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&id_parameter), host.borrow_mut()),
+                Funcs::buyer_CallTimeout => buyer_CallTimeout( create_ctx(buyer_accountAddress, 3).set_parameter(&id_parameter), host.borrow_mut()),
+                Funcs::seller_ItemWasDelivered => seller_ItemWasDelivered(create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&id_parameter), host.borrow_mut()),
+                Funcs::buyer_ConfirmDelivery => buyer_ConfirmDelivery(create_ctx(buyer_accountAddress, 3).set_parameter(&id_parameter), host.borrow_mut()),
+                Funcs::seller_CallTimeout => seller_CallTimeout(create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&id_parameter), host.borrow_mut()),
+                Funcs::buyer_DisputeDelivery => buyer_DisputeDelivery(create_ctx(buyer_accountAddress, 3).set_parameter(&buyer_id_commitment_parameter), host.borrow_mut(), Amount {micro_ccd: 21}),
+                Funcs::buyer_CallTimeout => buyer_CallTimeout(create_ctx(buyer_accountAddress, 3).set_parameter(&id_parameter), host.borrow_mut()),
+                Funcs::seller_ForfeitDispute => seller_ForfeitDispute( create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&id_parameter), host.borrow_mut()),
+                Funcs::seller_CounterDispute => seller_CounterDispute( create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&seller_id_randomBit_param), host.borrow_mut(), Amount{ micro_ccd: 21}),
+                Funcs::buyer_OpenCommitment => buyer_OpenCommitment(create_ctx(buyer_accountAddress, 3).set_parameter(&id_parameter), host.borrow_mut()),
+                Funcs::seller_CallTimeout => seller_CallTimeout( create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&id_parameter), host.borrow_mut()),
                 _ => {println!("WE SHOULD NEVER GET HERE"); return false;}
             };
 
-            println!("choice: {}", choice);
-            println!("choice func: {:?}", choice.func);
-            println!("[s3] state: {:?}--------------------------", currentContractState.contracts.get(0));
-            assert!(currentContractState.contracts.get(0).unwrap().state == choice.state); // THIS IS THE PROPERTY WE ARE TESTING
 
+            println!("[s1] choice: {}", choice);
+            println!("[s2] choice func: {:?}", choice.func);
+            println!("[s3] state: {:?}--------------------------", host.state_mut().contracts.get(0).unwrap().state);
+            //assert!(host.state_mut().contracts.get(0).unwrap().state == choice.state); // THIS IS THE PROPERTY WE ARE TESTING
 
-            let contractState: &mut ContractState = host.state_mut(); // get new ContractState
-            currentContractState = contractState; // update current ContractState for next iteration
+            //let contractState: &mut ContractState = host.state_mut(); // get new ContractState
+            //currentContractState = contractState; // update current ContractState for next iteration
         }
 
         //Things to consider:
