@@ -30,6 +30,11 @@ struct InitParameter {
     timeout: u64,
 }
 
+//impl fmt::Display for State {
+//    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//        write!(f, "{:?}", self)
+//    }
+//}
 /// `concordium-client contract show`.
 #[derive(Serialize, PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Copy)]
 pub enum State {
@@ -51,7 +56,7 @@ struct Item {
 }
 
 /// A single purchase by a buyer.
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 struct Purchase {
     commit: u64,        // Commitment to buyer random bit
     timestamp: Timestamp,    // The last block where activity was recorded (for timeouts).
@@ -68,7 +73,6 @@ struct Purchase {
 pub struct ContractState {
     vendor: AccountAddress,
     timeout: u64,
-    state: State,
     contracts: Vec<Purchase>,
     listings: Vec<Item>,
 }
@@ -99,7 +103,6 @@ fn commerce_init<S: HasStateApi>(
     let parameter: InitParameter = ctx.parameter_cursor().get()?;
     ensure!(parameter.timeout > 0);
     let state = ContractState {
-        state: State::Null,
         vendor: parameter.vendor,
         timeout: parameter.timeout,
         contracts: vec!(),
@@ -128,24 +131,15 @@ fn buyer_RequestPurchase<S: HasStateApi>(
     let timestamp = parameters.timestamp;
     let item: usize = parameters.item as usize;
 
-    //let host.state().listings;
-    ensure!(amount.micro_ccd == host.state().listings.get(item).unwrap().item_value);//, Errors::MatchingItemValueError); //must pay correct amount
-    //let mut hasher = Sha3::keccak256();
+    // Must pay correct amount
+    ensure!(amount.micro_ccd == host.state().listings.get(item).unwrap().item_value);
 
-    //let str = Timestamp::from_timestamp_millis(timestamp).timestamp_millis().to_string();// + ctx.sender()
-    //hasher.input_str("placeholder");
-
-    //let id: String = "placeholder".to_string();
     let id = 0; // dummy
     let sender = match ctx.sender() {
-        Address::Account(acc) => {println!("78ASFD"); acc},
-        //AccountAddress(value) => value,
-        _ => {println!("ASDF78HU"); bail!()}
-        //Account(AccountAddress),
-        //Contract(Contbail!()
+        Address::Account(acc) => acc,
+        _ => bail!()
     };
-    println!("hello4");
-    println!("__{:?}__",sender);
+    //println!("__{:?}__",sender);
 
     host.state_mut().contracts.push(Purchase {
         commit: 0,
@@ -183,9 +177,7 @@ fn buyer_Abort<S: HasStateApi>(
     };
     let id: usize = parameters.id as usize;
     let item: usize = parameters.item as usize;
-
     let borrowed_host = host.state_mut();
-
     let mut contract = borrowed_host.contracts.get_mut(id).unwrap();
     let mut item_value = borrowed_host.listings.get(item).unwrap().clone().item_value;
     let buyer = contract.buyer;
@@ -216,15 +208,14 @@ fn buyer_ConfirmDelivery<S: HasStateApi>(
         Err(_) => bail!(Errors::ParseError)
     };
     let id: usize = parameters.id as usize;
-
     let contract = host.state_mut().contracts.get_mut(id).unwrap();
     let buyer = contract.buyer;
     let sender = ctx.sender();
 
-    // "Only buyer can confirm the delivery"
+    // Only buyer can confirm the delivery
     ensure!(sender.matches_account(&buyer), Errors::MatchingAccountError);
 
-    // "Can only confirm after vendor has claimed delivery"
+    // Can only confirm after vendor has claimed delivery
     ensure!(contract.state == Delivered, Errors::StateError);
 
     contract.state = Completed;
@@ -254,15 +245,12 @@ fn buyer_DisputeDelivery<S: HasStateApi>(
     };
     let id: usize = parameters.id as usize;
     let commitment = parameters.commitment;
-
     let borrowed_host = host.state_mut();
-
     let contract = borrowed_host.contracts.get_mut(id).unwrap();
     let item: usize = contract.clone().item as usize;
     let item_value = borrowed_host.listings.get(item).unwrap().clone().item_value;
     let buyer = contract.buyer;
     let sender = ctx.sender();
-
 
     // Only buyer can dispute the delivery
     ensure!(sender.matches_account(&buyer), Errors::MatchingAccountError);
@@ -272,7 +260,6 @@ fn buyer_DisputeDelivery<S: HasStateApi>(
 
     // Has to wager same value as transaction
     ensure!(item_value == amount.micro_ccd, Errors::MatchingItemValueError);
-    // ContractState.listings.entry(item).item_value
 
     contract.state = Dispute;
     // Store buyer's commitment to random bit
@@ -294,9 +281,7 @@ fn buyer_CallTimeout<S: HasStateApi>(
         Err(_) => bail!(Errors::ParseError)
     };
     let id: usize = parameters.id as usize;
-
     let borrowed_host = host.state_mut();
-
     let contract = borrowed_host.contracts.get_mut(id).unwrap();
     let item: usize = contract.clone().item as usize;
     let amount = borrowed_host.listings.get(item).unwrap().clone().item_value;
@@ -356,12 +341,9 @@ fn buyer_OpenCommitment<S: HasStateApi>(
 
     // Can only open commitment if seller has countered
     ensure!(contract.state == Counter, Errors::StateError);
-    //let mut hasher = Sha3::keccak256();
-    //hasher.input_str("placeholder"); // probably not what we are looking for &(stringify!(buyerBit, id, nonce))
-    //let hashed: String = hasher.result_str();
 
-    ensure!(contract.commit == 0, Errors::CommitError); //"Check that (_buyerBit,id,nonce) is opening of commitment");
-
+    // Check that commit is 0
+    ensure!(contract.commit == 0, Errors::CommitError);
 
     contract.state = Failed;
 
@@ -386,9 +368,7 @@ fn seller_CallTimeout<S: HasStateApi>(
         Err(_) => bail!(Errors::ParseError)
     };
     let id: usize = parameters.id as usize;
-
     let borrowed_host = host.state_mut();
-
     let contract = borrowed_host.contracts.get_mut(id).unwrap();
     let item: usize = contract.clone().item as usize;
     let amount = borrowed_host.listings.get(item).unwrap().item_value;
@@ -421,9 +401,7 @@ fn seller_RejectContract<S: HasStateApi>(
         Err(_) => bail!(Errors::ParseError)
     };
     let id: usize = parameters.id as usize;
-
     let borrowed_host = host.state_mut();
-
     let contract = borrowed_host.contracts.get_mut(id).unwrap();
     let item: usize = contract.clone().item as usize;
     let amount = Amount { micro_ccd: borrowed_host.listings.get(item).unwrap().item_value};
@@ -436,7 +414,6 @@ fn seller_RejectContract<S: HasStateApi>(
 
     // Can only reject contract when buyer has requested
     ensure!(contract.state == Requested, Errors::StateError);
-
 
     contract.state = Rejected;
     // transfer funds back to buyer
@@ -481,9 +458,7 @@ fn seller_ItemWasDelivered<S: HasStateApi>(
         Err(_) => bail!(Errors::ParseError)
     };
     let id: usize = parameters.id as usize;
-
     let borrowed_host = host.state_mut();
-
     let contract = borrowed_host.contracts.get_mut(id).unwrap();
     let sender = ctx.sender();
     let vendor = borrowed_host.vendor;
@@ -680,6 +655,20 @@ mod tests {
     #[derive(Clone, Debug)]
     pub struct ValidPath(Vec<Choice>);
 
+    impl fmt::Display for ValidPath {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            self.0.iter().fold(Ok(()), |result, choice| {
+                result.and_then(|_| writeln!(f, "{}, ", choice))
+            })
+        }
+    }
+
+    impl fmt::Display for Choice {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "Choice(State: {:?})", self.state)
+        }
+    }
+
     #[derive(Clone, Debug, Copy)]
     pub struct Choice{ state: State, func: Funcs }
 
@@ -747,6 +736,7 @@ mod tests {
             while choices.len() > 0 {
                 let randomIndex = (u64::arbitrary(g) as usize) % choices.len();
                 let &Choice {state, func} = choices.get(randomIndex).unwrap();
+                println!("Pushing choice: {:?}", Choice {state, func});
                 path.push(Choice {state, func});
                 choices = stateMappings.get(&state).unwrap();
             }
@@ -780,8 +770,11 @@ mod tests {
 
     #[quickcheck]
     fn property_check(validPath: ValidPath) -> bool {
+
+        // Create a test statebuilder
         let mut state_builder = TestStateBuilder::new();
 
+        // Create owner, aka vendor, addresses and contexts
         let owner_accountAddress = new_account();
         let owner_account = Address::Account(owner_accountAddress);
         let owner_ctx = create_ctx_with_owner(
@@ -789,46 +782,51 @@ mod tests {
             owner_accountAddress,
             2
         );
-            //TestReceiveContext::empty()
-            //.set_sender(owner_account)
-            //.set_owner(owner_accountAddress);
-            //.set_metadata_slot_time(Timestamp::from_timestamp_millis(slot_time))
 
+        // Create buyer addresses and contexts
         let buyer_accountAddress = new_account();
         let buyer_account = Address::Account(buyer_accountAddress);
         let buyer_ctx = create_ctx(buyer_accountAddress, 3);
-            //TestReceiveContext::empty()
-            //.set_sender(buyer_account);
-            //.set_metadata_slot_time(Timestamp::from_timestamp_millis(slot_time));
 
-
-        //let initialContractState: ContractState = createInitialState();
+        // Create smart contract initialization parameter
         let init_parameter = create_parameter_bytes(&InitParameter {
             vendor: owner_accountAddress,
             timeout: 3
         });
+
+        // Get initial contract state by initializing the contract
         let initialContractState: ContractState = commerce_init(
-             &parametrized_init_ctx(&init_parameter),
-    &mut TestStateBuilder::new()
+            &parametrized_init_ctx(&init_parameter),
+            &mut state_builder
         ).expect("Initialization should pass");
 
+        // Create a testhost with initial contract state and the test statebuilder
+        //let &mut host: &mut TestHost<ContractState>   = TestHost::new(initialContractState.clone(), state_builder);
         let mut host = TestHost::new(initialContractState.clone(), state_builder);
 
-        let state = host.state_mut();
-        state.listings.insert(0, Item { item_value: 21, description: "Some item".to_string() });
-
+        // Create parameter for requesting a purchase
         let (buyer_RequestPurchaseParameter) = to_bytes(&buyer_RequestPurchaseParameter{
             info: "".to_string(),
             timestamp: 0,
             item: 0,
         });
 
+        // Get the contract state from the host, then insert an item
+        let state = host.state_mut();
+        state.listings.insert(0, Item { item_value: 21, description: "Some item".to_string() });
+
+        //println!("[A1] Contracts: {:?}", state.contracts.clone());
+        println!("[A1] Contracts: {:?}______________________________", host.state_mut().contracts);
+
+        // Create the id by requesting a purchase
         let id = buyer_RequestPurchase(
             create_ctx(buyer_accountAddress, 3).set_parameter(&buyer_RequestPurchaseParameter),
             &mut host,
             Amount {micro_ccd: 21}
         ).unwrap();
 
+        //println!("[A2] Contracts: {:?}", state.contracts.clone());
+        println!("[A2] Contracts: {:?}______________________________", host.state_mut().contracts);
 
         // buyer_RequestPurchase(&ctx0, &mut host, Amount { micro_ccd: 10 });
 
@@ -857,32 +855,40 @@ mod tests {
         });
         let mut test_ctx = parametrized_init_ctx(&test_param);
 
+        println!("\n\nValidPath to test: [{}]; \n\n", validPath);
 
-        let mut currentContractState = initialContractState.clone();
+        let mut currentContractState = host.state_mut();
+        println!("[1s3] contract state: {:?}", currentContractState.contracts.get(0));
+        //let mut currentContractState = host.state_mut().clone();
+
+
         for choice in validPath.0.into_iter() {
-            assert!(currentContractState.state == choice.state); // THIS IS THE PROPERTY WE ARE TESTING
 
-
+            println!("[2s3] state: {:?}--------------------------", currentContractState.contracts.get(0));
             match choice.func {
-                Funcs::seller_ItemWasDelivered => seller_ItemWasDelivered(TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
-                Funcs::buyer_Abort => buyer_Abort(TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
-                Funcs::seller_RejectContract => seller_RejectContract(TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
-                Funcs::buyer_CallTimeout => buyer_CallTimeout( TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
-                Funcs::seller_ItemWasDelivered => seller_ItemWasDelivered( TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
-                Funcs::buyer_ConfirmDelivery => buyer_ConfirmDelivery( TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
-                Funcs::seller_CallTimeout => seller_CallTimeout( TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
-                Funcs::buyer_DisputeDelivery => buyer_DisputeDelivery(TestReceiveContext::empty().set_parameter(&buyer_id_commitment_parameter), &mut host, Amount {micro_ccd: 21}),
-                Funcs::buyer_CallTimeout => buyer_CallTimeout( TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
-                Funcs::seller_ForfeitDispute => seller_ForfeitDispute( TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
-                Funcs::seller_CounterDispute => seller_CounterDispute( TestReceiveContext::empty().set_parameter(&seller_id_randomBit_param), &mut host, Amount{ micro_ccd: 21}),
-                Funcs::buyer_OpenCommitment => buyer_OpenCommitment(TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
-                Funcs::seller_CallTimeout => seller_CallTimeout(TestReceiveContext::empty().set_parameter(&id_parameter), &mut host),
+                Funcs::seller_ItemWasDelivered => seller_ItemWasDelivered(create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&id_parameter), host.borrow_mut()),
+                Funcs::buyer_Abort => buyer_Abort(create_ctx(buyer_accountAddress, 3).set_parameter(&id_parameter), &mut host),
+                Funcs::seller_RejectContract => seller_RejectContract(create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&id_parameter), &mut host),
+                Funcs::buyer_CallTimeout => buyer_CallTimeout( create_ctx(buyer_accountAddress, 3).set_parameter(&id_parameter), &mut host),
+                Funcs::seller_ItemWasDelivered => seller_ItemWasDelivered(create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&id_parameter), &mut host),
+                Funcs::buyer_ConfirmDelivery => buyer_ConfirmDelivery(create_ctx(buyer_accountAddress, 3).set_parameter(&id_parameter), &mut host),
+                Funcs::seller_CallTimeout => seller_CallTimeout(create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&id_parameter), &mut host),
+                Funcs::buyer_DisputeDelivery => buyer_DisputeDelivery(create_ctx(buyer_accountAddress, 3).set_parameter(&buyer_id_commitment_parameter), &mut host, Amount {micro_ccd: 21}),
+                Funcs::buyer_CallTimeout => buyer_CallTimeout(create_ctx(buyer_accountAddress, 3).set_parameter(&id_parameter), &mut host),
+                Funcs::seller_ForfeitDispute => seller_ForfeitDispute( create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&id_parameter), &mut host),
+                Funcs::seller_CounterDispute => seller_CounterDispute( create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&seller_id_randomBit_param), &mut host, Amount{ micro_ccd: 21}),
+                Funcs::buyer_OpenCommitment => buyer_OpenCommitment(create_ctx(buyer_accountAddress, 3).set_parameter(&id_parameter), &mut host),
+                Funcs::seller_CallTimeout => seller_CallTimeout( create_ctx_with_owner(owner_accountAddress, owner_accountAddress, 2).set_parameter(&id_parameter), &mut host),
                 _ => {println!("WE SHOULD NEVER GET HERE"); return false;}
             };
 
+            println!("choice: {}", choice);
+            println!("choice func: {:?}", choice.func);
+            println!("[s3] state: {:?}--------------------------", currentContractState.contracts.get(0));
+            assert!(currentContractState.contracts.get(0).unwrap().state == choice.state); // THIS IS THE PROPERTY WE ARE TESTING
 
 
-            let contractState: ContractState = host.state_mut().clone(); // get new ContractState
+            let contractState: &mut ContractState = host.state_mut(); // get new ContractState
             currentContractState = contractState; // update current ContractState for next iteration
         }
 
