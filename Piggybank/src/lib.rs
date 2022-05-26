@@ -1,8 +1,4 @@
-
-
-
-
-/*use concordium_std::*;
+use concordium_std::*;
 
 #[derive(Serialize, PartialEq, Eq, Debug)]
 enum PiggyBankState {
@@ -45,8 +41,6 @@ fn piggy_smash<A: HasActions>(
     let balance = ctx.self_balance();
     Ok(A::simple_transfer(&owner, balance))
 }
-
-/*
 #[concordium_cfg_test]
 mod tests {
     use super::*;
@@ -143,4 +137,3 @@ mod tests {
         );
     }
 }
-*/

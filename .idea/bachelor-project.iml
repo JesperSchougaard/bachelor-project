@@ -3,8 +3,14 @@
   <component name="NewModuleRootManager" inherit-compiler-output="true">
     <exclude-output />
     <content url="file://$MODULE_DIR$">
-      <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/Auction/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/Commerce/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/Fibonacci/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/Piggybank/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
+      <excludeFolder url="file://$MODULE_DIR$/Piggybank/target" />
+      <excludeFolder url="file://$MODULE_DIR$/Fibonacci/target" />
+      <excludeFolder url="file://$MODULE_DIR$/Auction/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
