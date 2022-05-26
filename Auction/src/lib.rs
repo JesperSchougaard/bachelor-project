@@ -2,7 +2,6 @@
 #![allow(unused_variables)]
 #![allow(warnings, unused)]
 
-
 extern crate core;
 
 use concordium_std::*;
@@ -152,18 +151,13 @@ fn auction_finalize<S: HasStateApi>(
 
     let owner = ctx.owner();
 
-    //println!("A");
     let balance = host.self_balance();
     if balance == Amount::zero() {
-        //println!("A2");
         Ok(())
     } else {
-        //println!("B");
         if host.invoke_transfer(&owner, state.highest_bid).is_err() {
-            //println!("B2");
             bail!(FinalizeError::BidMapError);
         }
-        //println!("C");
         let mut remaining_bid = None;
         // Return bids that are smaller than highest
         for (addr, amnt) in state.bids.iter() {
@@ -425,28 +419,9 @@ mod tests {
     use rand::{Rng, SeedableRng, thread_rng};
     use crate::schema::SizeLength::U64;
 
-    #[derive(Debug)]
-    pub struct AmountFixture(pub Amount);
-    //clone values
-    impl Clone for AmountFixture {
-        fn clone(&self) -> Self { AmountFixture(self.0) }
-    }
 
-    //make arbitrary values
-    impl Arbitrary for AmountFixture {
-        fn arbitrary(g: &mut Gen) -> Self {
-            Self(concordium_std::Amount { micro_ccd: g.size() as u64 })
-        }
-    }
-
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct Bids(pub Vec<u64>);
-
-    impl Clone for Bids {
-        fn clone(&self) -> Self {
-            Self(self.0.clone())
-        }
-    }
 
     impl Arbitrary for Bids {
         fn arbitrary(g: &mut Gen) -> Self {
@@ -456,7 +431,7 @@ mod tests {
 
 
     #[quickcheck]
-    fn propertybased(amount: AmountFixture, bids: Bids, account_to_bid: Vec<u8>) -> bool {
+    fn propertybased(bids: Bids, account_to_bid: Vec<u8>) -> bool {
         let number_of_bids = account_to_bid.len();
         if number_of_bids <= 1 {
             return true
@@ -469,7 +444,7 @@ mod tests {
             auction_init(&ctx0, &mut state_builder).expect("Initialization should pass");
         let mut host = TestHost::new(initial_state, state_builder);
 
-        let mut accounts: BTreeMap<u8, TestReceiveContext> = BTreeMap::new(); ///account#, account
+        let mut accounts: BTreeMap<u8, TestReceiveContext> = BTreeMap::new(); //account#, account
         let mut bid_map: BTreeMap<AccountAddress, Amount> = BTreeMap::new();
         let highest_bid = Amount { micro_ccd: u64::MIN };
 
@@ -484,14 +459,13 @@ mod tests {
 
         //perform a bid for each number in the list of "number_of_bids"
         for i in 0..(min(number_of_bids, bids.0.len())) {
-            assert_ne!(bids.0[0], 0);
+            assert!(bids.0[i] > 0);
 
             let ctx: &TestReceiveContext = accounts.get(&account_to_bid[i]).unwrap();
             address_of_last_buyer = ctx.owner();
 
             let current_bid = bid_map.get(&ctx.owner()).cloned().unwrap_or(Amount { micro_ccd: 0 }).micro_ccd;
 
-            assert!(bids.0[i] > 0);
             global_highest_bid = host.borrow_mut().state().highest_bid.micro_ccd + bids.0[i];
             verify_bid(&mut host,
                        ctx.owner(),
@@ -502,8 +476,6 @@ mod tests {
             );
         }
 
-        let transfers = host.borrow_mut().get_transfers();
-
         host.borrow_mut().set_self_balance(Amount { micro_ccd: u64::MAX });
         let fin_ctx: TestReceiveContext = new_ctx(new_account(), new_account(), 2);
         let result = auction_finalize(&fin_ctx, &mut host);
@@ -512,6 +484,7 @@ mod tests {
 
         let transfers = host.borrow_mut().get_transfers();
         assert!(transfers.len() > 0);
+        assert!(bid_map.len() == transfers.len());
 
         for (acc, amount) in transfers {
             if fin_ctx.owner() == acc {

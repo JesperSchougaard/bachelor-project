@@ -73,9 +73,9 @@ fn contract_receive<A: HasActions>(
     let fibnum: FibNum = ctx.parameter_cursor().get()?;
     let n = fibnum.number;
 
-    if n == 28 {    // Intentionally implemented fib incorrectly
-        return Ok(A::accept())
-    };
+    //if n == 20 {    // Intentionally implemented fib incorrectly
+    //    return Ok(A::accept())
+    //};
 
     //println!("{}", state.result);
     //println!("n: {}", n);
@@ -138,7 +138,6 @@ extern crate quickcheck;
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
 extern crate concordium_std;
-//extern crate alloc;
 #[cfg(test)]
 mod tests {
     use quickcheck::{Gen, Arbitrary, Testable, TestResult};
@@ -146,63 +145,74 @@ mod tests {
     use test_infrastructure::*;
     use concordium_std::*;
     use rand::{thread_rng, Rng};
-    //use libc::printf;
-    //use core::;
 
-    //use std::fmt;
-    //use std::*;
-
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     struct u64InRange(u64);
 
-    impl Clone for u64InRange {
-        fn clone(&self) -> Self {
-            u64InRange(self.0)
-        }
-    }
-
+    // limit numbers to 22 since fibonacci implementation is slow (exponential)
     impl Arbitrary for u64InRange {
         fn arbitrary(g: &mut Gen) -> Self {
             let mut rng = thread_rng();
-            u64InRange(rng.gen_range(1..30))  //    http://mathman.biz/html/30fibnumbers.html
+            u64InRange(rng.gen_range(0..22))  //    http://mathman.biz/html/30fibnumbers.html
         }
     }
 
     #[quickcheck]
-    fn try_again(something: u64InRange) -> bool {
+    fn post_condition(something: u64InRange) -> bool {
         let mut n: u64 = something.0;
-        //if n > 30 {
-        //    true
-        //}
-        //TestResult::discard()
 
         let (bob, mut bob_ctx) = new_account_ctx();
-        //let test: Vec<u8> = {to_bytes(&2)};
 
         let fibnum_test = FibNum { number: n };
-        //let test = &(3_i32).to_le_bytes();
         let test = to_bytes(&fibnum_test);
         bob_ctx.set_parameter(&test);
 
-        //let result: ReceiveResult<ActionsTree> = Ok(HasActions::send_raw(
-        //    &bob_ctx.self_address(),
-        //    ReceiveName::new_unchecked("fib.receive"),
-        //    Amount::zero(),
-        //    &to_bytes(&fibnum_test),
-        //));
-
-
         let mut pointer_state = State {result: 0};
-        let result: ReceiveResult<ActionsTree> = contract_receive(&bob_ctx, &mut pointer_state);
-        println!("n: {}, Fib: {}, is equal: {}", n, pointer_state.result, fib(fibnum_test.number) == pointer_state.result );
-        println!("E: {}", result.is_ok());
-        //let result: ReceiveResult<ActionsTree> = contract_receive_calc_fib(&bob_ctx, Amount{micro_ccd: 7}, &mut pointer_state);
 
-        //result.is_ok()
+        let result: ReceiveResult<ActionsTree> = contract_receive(&bob_ctx, &mut pointer_state);
+        //println!("n: {}, Fib: {}, is equal: {}", n, pointer_state.result, fib(fibnum_test.number) == pointer_state.result );
+        //println!("E: {}", result.is_ok());
+
         assert_eq!(pointer_state.result, fib(n));
         true
-        //TestResult::result()
     }
 
+
+    #[quickcheck]
+    fn metamorphic_properties(something: u64InRange) -> bool {
+        let (acc, mut ctx) = new_account_ctx();
+        let mut n: u64 = something.0;
+
+        let fibnum_a = FibNum { number: n };
+        let fibnum_a1 = FibNum { number: n+1 };
+        let fibnum_a2 = FibNum { number: n+2 };
+
+        // f(a)
+        let a = to_bytes(&fibnum_a);
+        ctx.set_parameter(&a);
+        let mut pointer_state_a = State {result: 0};
+        let _: ReceiveResult<ActionsTree> = contract_receive(&ctx, &mut pointer_state_a);
+        let result_a: u64 = pointer_state_a.result;
+
+        // f(a+1)
+        let a1 = to_bytes(&fibnum_a1);
+        ctx.set_parameter(&a1);
+        let mut pointer_state_a1 = State {result: 0};
+        let _: ReceiveResult<ActionsTree> = contract_receive(&ctx, &mut pointer_state_a1);
+        let result_a1 = pointer_state_a1.result;
+
+        // f(a+2)
+        let a2 = to_bytes(&fibnum_a2);
+        ctx.set_parameter(&a2);
+        let mut pointer_state_a2 = State {result: 0};
+        let _: ReceiveResult<ActionsTree> = contract_receive(&ctx, &mut pointer_state_a2);
+        let result_a2 = pointer_state_a2.result;
+
+        assert!(result_a >= 1, "property 3");                      // property 3, f(a) >= 1
+        assert_eq!(result_a + result_a1, result_a2, "property 4"); // property 4, f(a) + f(a+1) = f(a+2)
+        assert_eq!(result_a2 - result_a1, result_a, "property 5"); // property 5, f(a+2) - f(a+1) = f(a)
+        assert!(result_a <= result_a1, "property 6");              // property 6, f(a) <= f(a+1)
+        true
+    }
 
 }
