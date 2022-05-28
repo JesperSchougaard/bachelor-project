@@ -1,17 +1,17 @@
 use std::fmt::Display;
 
-struct Assert<T: Eq + Display + Copy> {
+struct Assert<T: Eq + Display> {
     left: T,
     right: T,
     result: bool,
     line: u32
 }
 
-struct MultiAssert<T: Eq + Display + Copy> {
+struct MultiAssert<T: Eq + Display> {
     asserts: Vec<Assert<T>>
 }
 
-impl<T: Eq + Display + Copy> MultiAssert<T> {
+impl<T: Eq + Display> MultiAssert<T> {
     fn new() -> MultiAssert<T> {
         MultiAssert {
             asserts: Vec::new()
