@@ -1,0 +1,7 @@
+# pack-refs with: peeled fully-peeled sorted 
+e4003683faee03a12df2bd0065b02baa0aa97675 refs/remotes/origin/concordium_ver_3
+2cf0015e6820a1975e125eb853571de63bb0a07f refs/remotes/origin/contract_split
+d30dbcad6c610325f8fbd82fc0f944476037cf7d refs/remotes/origin/lib-migration
+97f508814fcac98352a6e64305e136fb6fb39c91 refs/remotes/origin/main
+fb49ab653cbc315f7fee43dcbae298a1119589cf refs/remotes/origin/optimize-wasm
+5f9dc1a99463e251b688459b83d6886acc85fd0b refs/remotes/origin/proto
