@@ -1,0 +1,2 @@
+0000000000000000000000000000000000000000 e4003683faee03a12df2bd0065b02baa0aa97675 JESPER-RYZEN\jesper-ryzen <jesperschougaard@gmail.com> 1653912160 +0200	branch: Created from refs/remotes/origin/concordium_ver_3
+e4003683faee03a12df2bd0065b02baa0aa97675 e3d54c4f5aae5a13f587dd45232397b8fc93c02c JESPER-RYZEN\jesper-ryzen <jesperschougaard@gmail.com> 1654027600 +0200	commit: made PTB test that shows a bug in the contract

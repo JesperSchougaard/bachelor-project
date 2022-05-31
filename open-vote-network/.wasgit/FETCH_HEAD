@@ -1,0 +1,6 @@
+e4003683faee03a12df2bd0065b02baa0aa97675		branch 'concordium_ver_3' of https://github.com/hrbengtsen/open-vote-network
+2cf0015e6820a1975e125eb853571de63bb0a07f	not-for-merge	branch 'contract_split' of https://github.com/hrbengtsen/open-vote-network
+d30dbcad6c610325f8fbd82fc0f944476037cf7d	not-for-merge	branch 'lib-migration' of https://github.com/hrbengtsen/open-vote-network
+97f508814fcac98352a6e64305e136fb6fb39c91	not-for-merge	branch 'main' of https://github.com/hrbengtsen/open-vote-network
+fb49ab653cbc315f7fee43dcbae298a1119589cf	not-for-merge	branch 'optimize-wasm' of https://github.com/hrbengtsen/open-vote-network
+5f9dc1a99463e251b688459b83d6886acc85fd0b	not-for-merge	branch 'proto' of https://github.com/hrbengtsen/open-vote-network

@@ -1,0 +1,12 @@
+[workspace]
+members = [
+  "voting",
+  "off-chain",
+  "util",
+  "rs-merkle"
+]
+
+# WASM optimizations in release mode
+[profile.release]
+lto = true
+opt-level = 's'
