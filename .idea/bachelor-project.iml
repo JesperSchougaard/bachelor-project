@@ -7,10 +7,16 @@
       <sourceFolder url="file://$MODULE_DIR$/Commerce/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/Fibonacci/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/Piggybank/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/open-vote-network/off-chain/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/open-vote-network/util/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/open-vote-network/voting/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/open-vote-network/rs-merkle/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/open-vote-network/rs-merkle/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/Piggybank/target" />
       <excludeFolder url="file://$MODULE_DIR$/Fibonacci/target" />
       <excludeFolder url="file://$MODULE_DIR$/Auction/target" />
+      <excludeFolder url="file://$MODULE_DIR$/open-vote-network/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
