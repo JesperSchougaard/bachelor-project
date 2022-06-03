@@ -526,5 +526,17 @@ fn refund_deposits<S: HasStateApi>(
         host.invoke_transfer(&account, host.state().config.deposit)?;
     }
 
+
+
+    // Do this instead to fix the bug
+   /*  
+   if host.state().voting_phase != types::VotingPhase::Vote {
+        for addr in honest_accounts {
+            host.invoke_transfer(&addr, host.state().config.deposit)?;
+        }
+    }
+    */
+
+
     Ok(())
 }

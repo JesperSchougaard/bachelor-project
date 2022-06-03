@@ -4,16 +4,15 @@ use crate::*;
 
 #[concordium_cfg_test]
 mod tests {
-    use std::borrow::{Borrow, BorrowMut};
+    use std::borrow::{Borrow};
     use std::collections::BTreeMap;
     use concordium_std::test_infrastructure::{TestStateBuilder, TestReceiveContext};
     use super::*;
     use crate::tests::test_utils::*;
     use group::GroupEncoding;
-    use k256::{ProjectivePoint, Scalar};
+    use k256::{ProjectivePoint};
     use quickcheck::{Arbitrary, Gen};
     use quickcheck_macros::quickcheck;
-    use sha2::{Digest, Sha256};
     use crate::types::VotingPhase;
 
     // Make a vector of accounts into a map of accounts and their behavior
@@ -265,8 +264,8 @@ mod tests {
             host.set_self_balance(Amount::from_micro_ccd(u64::MAX));
             ctx.set_sender(Address::Account(*change_phase_caller));
             ctx.set_metadata_slot_time(Timestamp::from_timestamp_millis(301));
-            let result = change_phase(&ctx, &mut host);
-            let result2 = change_phase(&ctx, &mut host);
+            let _ = change_phase(&ctx, &mut host);
+            let _ = change_phase(&ctx, &mut host);
             //println!("1 Phase: {:?}", cur_phase);
             //println!("2 Phase: {:?}", cur_phase);
             //println!("3 Phase: {:?}", cur_phase);
@@ -277,12 +276,10 @@ mod tests {
         //println!("Phase: {:?}", cur_phase);
         let bur_host = host.borrow().clone();
         let cur_phase = bur_host.state().voting_phase;
-        println!("cur_phase: {:?}", cur_phase);
+        //println!("cur_phase: {:?}", cur_phase);
         assert!(cur_phase == VotingPhase::Result ||
                 cur_phase == VotingPhase::Abort,
-                cur_phase);
-
-
+                "{:?}", cur_phase);
 
 
 
@@ -298,16 +295,16 @@ mod tests {
             |acc| behavior_map.clone().get_mut(acc).unwrap().voted
         );
 
-        for acc in behavior_map.clone() {
-            println!("Account behavior: {:?}", acc.1);
-        }
-        println!("Transfer map with len: {:?}", transfer_map.len());
-        println!("Transfer list with len: {:?}", transfers.len());
-        for tran in transfer_map.values() {
-            println!("Transfer: {:?}", tran)
-        }
+        // for acc in behavior_map.clone() {
+        //     println!("Account behavior: {:?}", acc.1);
+        // }
+        // println!("Transfer map with len: {:?}", transfer_map.len());
+        // println!("Transfer list with len: {:?}", transfers.len());
+        // for tran in transfer_map.values() {
+        //     println!("Transfer: {:?}", tran)
+        // }
 
-        println!("Honest acc: {:?}", honest_accounts.clone().count());
+        // println!("Honest acc: {:?}", honest_accounts.clone().count());
 
 
         // Assertions about the net gain of "some_acc"
@@ -318,7 +315,7 @@ mod tests {
             transfer_map.insert(*change_phase_caller, deposit); // Set the value for the next assert
         }
         honest_accounts.into_iter().for_each(|acc|
-            assert_eq!(*transfer_map.get(&acc).unwrap(), deposit, "321")
+            assert_eq!(*transfer_map.get(&acc).unwrap(), deposit, "{:?}", line!())
         );
         true
     }
